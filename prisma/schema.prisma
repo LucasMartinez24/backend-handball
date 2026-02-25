@@ -31,6 +31,7 @@ model Jugador {
   tutorPhone      String?
   peso            Float?
   altura          Int?
+  categoria       String?
   manoHabil       String?  @default("Derecha")
   tipoFicha       String?  @default("Jugador Activo")
   clubId          String

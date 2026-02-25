@@ -84,5 +84,49 @@ router.post("/", async (req, res) => {
     });
   }
 });
+// Actualizar un jugador
+router.put("/:id", async (req, res) => {
+  const { id } = req.params;
+  const data = req.body;
 
+  try {
+    const actualizado = await prisma.jugador.update({
+      where: { id: id },
+      data: {
+        nombreCompleto: data.nombreCompleto,
+        dni: data.dni,
+        fechaNacimiento: new Date(data.fechaNacimiento),
+        genero: data.genero,
+        nacionalidad: data.nacionalidad,
+        email: data.email,
+        whatsapp: data.whatsapp,
+        tutorPhone: data.tutorPhone || null,
+        peso: data.peso ? parseFloat(data.peso) : null,
+        altura: data.altura ? parseInt(data.altura) : null,
+        manoHabil: data.manoHabil,
+        tipoFicha: data.tipoFicha,
+        categoria: data.categoria,
+      },
+    });
+    res.json(actualizado);
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: "Error al actualizar el jugador" });
+  }
+});
+
+// Eliminar un jugador
+router.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await prisma.jugador.delete({
+      where: { id: id },
+    });
+    res.json({ message: "Jugador eliminado correctamente" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "No se pudo eliminar el jugador" });
+  }
+});
 module.exports = router;
