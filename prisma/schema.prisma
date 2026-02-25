@@ -1,0 +1,39 @@
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "mysql" 
+}
+
+model Club {
+  id         String    @id @default(uuid())
+  nombre     String
+  siglas     String    @unique
+  // Campos de autenticación
+  username   String    @unique
+  password   String    // Aquí guardaremos el hash, no el texto plano
+  jugadores  Jugador[]
+  created_at DateTime  @default(now())
+}
+
+model Jugador {
+  id              String   @id @default(uuid())
+  dni             String   @unique
+  nombreCompleto  String
+  fechaNacimiento DateTime
+  genero          String?
+  nacionalidad    String?  @default("Argentina")
+  email           String?
+  whatsapp        String?
+  tutorPhone      String?
+  peso            Float?
+  altura          Int?
+  manoHabil       String?  @default("Derecha")
+  tipoFicha       String?  @default("Jugador Activo")
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id])
+  createdAt       DateTime @default(now())
+}
