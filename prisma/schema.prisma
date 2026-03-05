@@ -8,29 +8,30 @@ datasource db {
 }
 
 model Jugador {
-  id               String   @id @default(uuid())
-  dni              String   @unique
-  nombreCompleto   String
-  fechaNacimiento  DateTime
-  genero           String?
-  nacionalidad     String?  @default("Argentina")
-  email            String?
-  whatsapp         String?
-  tutorPhone       String?
-  peso             Float?
-  altura           Int?
-  categoria        String?
-  manoHabil        String?  @default("Derecha")
-  estado           String   @default("Pendiente")
+  id              String   @id @default(uuid())
+  dni             String   @unique
+  nombreCompleto  String
+  fechaNacimiento DateTime
+  genero          String?
+  nacionalidad    String?  @default("Argentina")
+  email           String?
+  whatsapp        String?
+  tutorPhone      String?
+  peso            Float?
+  altura          Int?
+  categoria       String?
+  manoHabil       String?  @default("Derecha")
+  estado          String   @default("Pendiente")
 
-  // Archivos
+  // --- ARCHIVOS (Aquí agregamos el nuevo campo) ---
   fichaMedicaUrl   String?
   autorizacionUrl  String?
+  fichaJugadorUrl  String? // <--- NUEVO CAMPO OBLIGATORIO EN LA PRÁCTICA
   
   // Relación con Club
-  clubId           String
-  club             Club     @relation(fields: [clubId], references: [id])
-  createdAt        DateTime @default(now())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id])
+  createdAt       DateTime @default(now())
 }
 
 model Torneo {
