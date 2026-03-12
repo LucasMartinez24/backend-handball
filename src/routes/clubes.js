@@ -2,12 +2,15 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 const bcrypt = require("bcrypt");
+const fs = require("fs");
+const path = require("path");
+const upload = require("../middleware/upload");
 
 router.get("/", async (req, res) => {
   try {
     const clubes = await prisma.club.findMany({
       include: {
-        jugadores: true, // Esto trae automáticamente la lista de jugadores de cada club
+        jugadores: true,
       },
     });
     res.json(clubes);
@@ -16,13 +19,8 @@ router.get("/", async (req, res) => {
   }
 });
 
-const upload = require("../middleware/upload");
-
-// 'logo' debe coincidir con el nombre del campo en el FormData de Angular
 router.post("/", upload.single("logo"), async (req, res) => {
   const { nombre, siglas, username, password } = req.body;
-
-  // Si se subió un archivo, guardamos la ruta relativa
   const logoUrl = req.file ? `/uploads/logos/${req.file.filename}` : null;
 
   try {
@@ -32,7 +30,7 @@ router.post("/", upload.single("logo"), async (req, res) => {
         siglas,
         username,
         password: await bcrypt.hash(password, 10),
-        logoUrl: logoUrl, // Aquí se guarda el string en la DB
+        logoUrl: logoUrl,
       },
     });
     res.json(nuevoClub);
@@ -40,23 +38,20 @@ router.post("/", upload.single("logo"), async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// Actualizar un club existente
+
 router.put("/:id", upload.single("logo"), async (req, res) => {
   const { id } = req.params;
   const { nombre, siglas, username, password } = req.body;
 
   try {
-    // 1. Buscamos el club actual para tener los datos previos (especialmente el password y logo)
     const clubActual = await prisma.club.findUnique({ where: { id: id } });
     if (!clubActual)
       return res.status(404).json({ error: "Club no encontrado" });
 
-    // 2. Gestionar el logo: si viene un archivo nuevo lo usamos, sino mantenemos el anterior
     const logoUrl = req.file
       ? `/uploads/logos/${req.file.filename}`
       : clubActual.logoUrl;
 
-    // 3. Gestionar el password: solo hasheamos si el usuario envió uno nuevo
     let hashedPassword = clubActual.password;
     if (password && password.trim() !== "") {
       hashedPassword = await bcrypt.hash(password, 10);
@@ -79,14 +74,11 @@ router.put("/:id", upload.single("logo"), async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-const fs = require("fs");
-const path = require("path");
 
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 1. Buscamos el club y sus jugadores para obtener las rutas guardadas
     const clubConJugadores = await prisma.club.findUnique({
       where: { id: id },
       include: { jugadores: true },
@@ -97,23 +89,16 @@ router.delete("/:id", async (req, res) => {
     }
 
     const archivosABorrar = [];
-
-    // Logo del club (ej: /uploads/logos/archivo.png)
     if (clubConJugadores.logoUrl)
       archivosABorrar.push(clubConJugadores.logoUrl);
 
-    // Archivos de jugadores (ej: /uploads/fichas/archivo.pdf)
     clubConJugadores.jugadores.forEach((jugador) => {
       if (jugador.fichaMedicaUrl) archivosABorrar.push(jugador.fichaMedicaUrl);
       if (jugador.autorizacionUrl)
         archivosABorrar.push(jugador.autorizacionUrl);
     });
 
-    // 2. Borramos los archivos físicos
     archivosABorrar.forEach((rutaRelativa) => {
-      // Como tus rutas en DB ya empiezan con /uploads,
-      // unimos la raíz del proyecto con esa ruta relativa.
-      // path.join(__dirname, "../../") nos lleva a "E:\Federacion de Handball\backend-handball"
       const rutaLimpia = rutaRelativa.startsWith("/")
         ? rutaRelativa.substring(1)
         : rutaRelativa;
@@ -123,25 +108,37 @@ router.delete("/:id", async (req, res) => {
         fs.unlink(rutaAbsoluta, (err) => {
           if (err)
             console.error(`Error al borrar archivo: ${rutaAbsoluta}`, err);
-          else console.log(`Archivo eliminado del disco: ${rutaAbsoluta}`);
         });
       }
     });
 
-    // 3. Eliminación en Cascada en la Base de Datos
+    // --- SOLUCIÓN AL ERROR P2003 ---
     await prisma.$transaction([
+      // 1. Borrar jugadores asociados
       prisma.jugador.deleteMany({ where: { clubId: id } }),
+
+      // 2. Borrar partidos donde el club sea local o visitante (Evita el error de Foreign Key)
+      prisma.partido.deleteMany({
+        where: {
+          OR: [{ localId: id }, { visitanteId: id }],
+        },
+      }),
+
+      // 3. Finalmente borrar el club
       prisma.club.delete({ where: { id: id } }),
     ]);
 
     res.json({
-      message: "Club, jugadores y archivos eliminados exitosamente.",
+      message: "Club, jugadores, partidos y archivos eliminados exitosamente.",
     });
   } catch (error) {
     console.error("Error crítico en eliminación:", error);
     res
       .status(500)
-      .json({ error: "No se pudo eliminar el club y sus dependencias." });
+      .json({
+        error: "No se pudo eliminar el club debido a dependencias activas.",
+      });
   }
 });
+
 module.exports = router;
