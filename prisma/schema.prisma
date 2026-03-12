@@ -24,28 +24,28 @@ model Jugador {
   estado          String   @default("Pendiente")
 
   // --- ARCHIVOS (Aquí agregamos el nuevo campo) ---
-  fichaMedicaUrl   String?
-  autorizacionUrl  String?
-  fichaJugadorUrl  String? // <--- NUEVO CAMPO OBLIGATORIO EN LA PRÁCTICA
-  
+  fichaMedicaUrl  String?
+  autorizacionUrl String?
+  fichaJugadorUrl String? // <--- NUEVO CAMPO OBLIGATORIO EN LA PRÁCTICA
+
   // Relación con Club
-  clubId          String
-  club            Club     @relation(fields: [clubId], references: [id])
-  createdAt       DateTime @default(now())
+  clubId    String
+  club      Club     @relation(fields: [clubId], references: [id])
+  createdAt DateTime @default(now())
 }
 
 model Torneo {
-  id              String     @id @default(uuid())
-  nombre          String
-  categoria       String
-  rama            String
-  formato         String     // <--- Este es el que faltaba en el cliente
-  idaVuelta       Boolean    @default(false)
-  estado          String     @default("Upcoming")
-  fechaInicio     DateTime
-  progreso        Int        @default(0)
-  colorClase      String
-  
+  id          String   @id @default(uuid())
+  nombre      String
+  categoria   String
+  rama        String
+  formato     String // <--- Este es el que faltaba en el cliente
+  idaVuelta   Boolean  @default(false)
+  estado      String   @default("Upcoming")
+  fechaInicio DateTime
+  progreso    Int      @default(0)
+  colorClase  String
+
   tablaPosiciones Posicion[]
   partidos        Partido[]
   createdAt       DateTime   @default(now())
@@ -54,65 +54,97 @@ model Torneo {
 model Posicion {
   id     String @id @default(uuid())
   puntos Int    @default(0)
-  pj     Int    @default(0) 
-  pg     Int    @default(0) 
-  pe     Int    @default(0) 
-  pp     Int    @default(0) 
-  gf     Int    @default(0) 
-  gc     Int    @default(0) 
-  dg     Int    @default(0) 
+  pj     Int    @default(0)
+  pg     Int    @default(0)
+  pe     Int    @default(0)
+  pp     Int    @default(0)
+  gf     Int    @default(0)
+  gc     Int    @default(0)
+  dg     Int    @default(0)
 
   torneoId String
   torneo   Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
-  
-  clubId   String
-  club     Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@unique([torneoId, clubId])
 }
 
 model Club {
-  id                String     @id @default(uuid())
-  nombre            String
-  siglas            String     @unique
-  logoUrl           String?
-  username          String     @unique
-  password          String
+  id       String  @id @default(uuid())
+  nombre   String
+  siglas   String  @unique
+  logoUrl  String?
+  username String  @unique
+  password String
 
-  // Relaciones
+  // Relaciones existentes
   jugadores         Jugador[]
   tablasPosiciones  Posicion[]
-
-  // RELACIONES CORREGIDAS: El nombre de la etiqueta debe coincidir con el de Partido
   partidosLocal     Partido[]  @relation("RelacionLocal")
   partidosVisitante Partido[]  @relation("RelacionVisitante")
 
-  created_at        DateTime   @default(now())
+  // --- RELACIÓN AGREGADA PARA TICKETS ---
+  tickets Ticket[] // <--- ESTO ES LO QUE FALTABA
+
+  created_at DateTime @default(now())
 }
 
 model Partido {
-  id              String   @id @default(uuid())
-  jornada         Int
-  fecha           DateTime?
-  lugar           String?
-  estado          String   @default("Programado")
-  
-  golesLocal      Int      @default(0)
-  golesVisitante  Int      @default(0)
+  id      String    @id @default(uuid())
+  jornada Int
+  fecha   DateTime?
+  lugar   String?
+  estado  String    @default("Programado")
+
+  golesLocal     Int @default(0)
+  golesVisitante Int @default(0)
 
   // Relación con Torneo
-  torneoId        String
-  torneo          Torneo   @relation(fields: [torneoId], references: [id], onDelete: Cascade)
+  torneoId String
+  torneo   Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
 
   // RELACIONES CORREGIDAS: 
   // 1. La etiqueta (ej: "RelacionLocal") debe ser IGUAL en Club y Partido.
   // 2. Agregamos 'map' para evitar el error de nombres duplicados en MySQL.
-  
-  localId         String
-  local           Club     @relation("RelacionLocal", fields: [localId], references: [id], map: "FK_Partido_Local")
-  
-  visitanteId     String
-  visitante       Club     @relation("RelacionVisitante", fields: [visitanteId], references: [id], map: "FK_Partido_Visitante")
 
-  createdAt       DateTime @default(now())
+  localId String
+  local   Club   @relation("RelacionLocal", fields: [localId], references: [id], map: "FK_Partido_Local")
+
+  visitanteId String
+  visitante   Club   @relation("RelacionVisitante", fields: [visitanteId], references: [id], map: "FK_Partido_Visitante")
+
+  createdAt DateTime @default(now())
+}
+
+model Ticket {
+  id        String    @id @default(uuid())
+  asunto    String
+  categoria String    @default("General") // <--- Valor por defecto evita el error P2011
+  status    String    @default("Abierto")
+  clubId    String
+  club      Club      @relation(fields: [clubId], references: [id])
+  messages  Message[]
+  createdAt DateTime  @default(now())
+}
+
+model Message {
+  id           String       @id @default(uuid())
+  text         String       @db.Text
+  senderRole   String       
+  senderName   String?      // <--- El "?" es vital para que no falle si no se envía
+  isInternal   Boolean      @default(false)
+  ticketId     String
+  ticket       Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
+  createdAt    DateTime     @default(now())
+}
+
+model Attachment {
+  id        String  @id @default(uuid())
+  name      String
+  url       String
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id])
 }

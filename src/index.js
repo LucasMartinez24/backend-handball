@@ -13,6 +13,8 @@ const rutasClubes = require("./routes/clubes");
 const rutaAuth = require("./routes/auth");
 const partidosRoutes = require("./routes/partidos");
 const posicionesRoutes = require("./routes/posiciones");
+const ticketRoutes = require("./routes/tickets");
+app.use("/api/tickets", ticketRoutes);
 app.use("/api/jugadores", rutasJugadores);
 app.use("/api/clubes", rutasClubes);
 app.use("/api/auth", rutaAuth);
