@@ -20,20 +20,18 @@ model Jugador {
   peso            Float?
   altura          Int?
   categoria       String?
+  equipo          String?  // <--- NUEVO CAMPO (A, B o C)
   manoHabil       String?  @default("Derecha")
   estado          String   @default("Pendiente")
 
-  // --- ARCHIVOS (Aquí agregamos el nuevo campo) ---
   fichaMedicaUrl  String?
   autorizacionUrl String?
-  fichaJugadorUrl String? // <--- NUEVO CAMPO OBLIGATORIO EN LA PRÁCTICA
+  fichaJugadorUrl String? 
 
-  // Relación con Club
   clubId    String
   club      Club     @relation(fields: [clubId], references: [id])
   createdAt DateTime @default(now())
 }
-
 model Torneo {
   id          String   @id @default(uuid())
   nombre      String
@@ -124,7 +122,7 @@ model Ticket {
   categoria String    @default("General") // <--- Valor por defecto evita el error P2011
   status    String    @default("Abierto")
   clubId    String
-  club      Club      @relation(fields: [clubId], references: [id])
+  club      Club      @relation(fields: [clubId], references: [id],onDelete: Cascade)
   messages  Message[]
   createdAt DateTime  @default(now())
 }
