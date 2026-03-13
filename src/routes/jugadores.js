@@ -79,7 +79,7 @@ router.post("/", cpUpload, async (req, res) => {
         peso: data.peso ? parseFloat(data.peso) : null,
         altura: data.altura ? parseInt(data.altura) : null,
         categoria: data.categoria,
-        equipo: data.equipo, // <--- GUARDAR EQUIPO
+        equipo: data.equipo,
         manoHabil: data.manoHabil,
         estado: "Pendiente",
         clubId: data.clubId,
@@ -96,7 +96,38 @@ router.post("/", cpUpload, async (req, res) => {
     });
     res.status(201).json(nuevoJugador);
   } catch (error) {
-    // ... (limpieza de archivos)
+    // --- LIMPIEZA DE ARCHIVOS ---
+    if (req.files) {
+      Object.keys(req.files).forEach((key) => {
+        req.files[key].forEach((file) => {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        });
+      });
+    }
+
+    // --- MANEJO DE DNI DUPLICADO ---
+    if (error.code === "P2002") {
+      try {
+        // Buscamos el club al que pertenece el jugador existente
+        const jugadorExistente = await prisma.jugador.findUnique({
+          where: { dni: req.body.dni },
+          include: { club: { select: { nombre: true } } },
+        });
+
+        const nombreClub = jugadorExistente?.club?.nombre || "otro club";
+
+        return res.status(400).json({
+          error: `El jugador ya se encuentra registrado para el club: ${nombreClub}. Comuníquese con soporte si cree que hay un error.`,
+        });
+      } catch (dbError) {
+        // Por si falla la búsqueda del club, mandamos el mensaje genérico
+        return res
+          .status(400)
+          .json({ error: "El DNI ya se encuentra registrado." });
+      }
+    }
+
+    console.error(error);
     res.status(500).json({ error: "Error al crear el jugador" });
   }
 });
@@ -107,10 +138,31 @@ router.put("/:id", cpUpload, async (req, res) => {
   const data = req.body;
   try {
     const jugadorActual = await prisma.jugador.findUnique({ where: { id } });
-    if (!jugadorActual) return res.status(404).json({ error: "No encontrado" });
+    if (!jugadorActual) {
+      // Si no existe, borramos lo que se subió por las dudas
+      if (req.files)
+        Object.keys(req.files).forEach((k) =>
+          req.files[k].forEach((f) => fs.unlinkSync(f.path)),
+        );
+      return res.status(404).json({ error: "No encontrado" });
+    }
 
     let { fichaMedicaUrl, autorizacionUrl, fichaJugadorUrl } = jugadorActual;
-    // ... (lógica de archivos igual)
+
+    if (req.files) {
+      if (req.files["fichaMedica"]) {
+        borrarArchivoFisico(jugadorActual.fichaMedicaUrl);
+        fichaMedicaUrl = `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`;
+      }
+      if (req.files["autorizacionPadres"]) {
+        borrarArchivoFisico(jugadorActual.autorizacionUrl);
+        autorizacionUrl = `/uploads/documentos/autorizaciones/${req.files["autorizacionPadres"][0].filename}`;
+      }
+      if (req.files["fichaJugador"]) {
+        borrarArchivoFisico(jugadorActual.fichaJugadorUrl);
+        fichaJugadorUrl = `/uploads/documentos/fichas-jugadores/${req.files["fichaJugador"][0].filename}`;
+      }
+    }
 
     const actualizado = await prisma.jugador.update({
       where: { id },
@@ -123,7 +175,7 @@ router.put("/:id", cpUpload, async (req, res) => {
         whatsapp: data.whatsapp,
         tutorPhone: data.tutorPhone,
         manoHabil: data.manoHabil,
-        equipo: data.equipo, // <--- ACTUALIZAR EQUIPO
+        equipo: data.equipo,
         clubId: data.clubId,
         fechaNacimiento: data.fechaNacimiento
           ? new Date(data.fechaNacimiento)
@@ -137,7 +189,18 @@ router.put("/:id", cpUpload, async (req, res) => {
     });
     res.json(actualizado);
   } catch (error) {
-    res.status(400).json({ error: "Error al actualizar" });
+    // --- INICIO LIMPIEZA DE ARCHIVOS NUEVOS SI FALLA EL UPDATE ---
+    if (req.files) {
+      Object.keys(req.files).forEach((key) => {
+        req.files[key].forEach((file) => {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        });
+      });
+    }
+    // --- FIN LIMPIEZA ---
+
+    console.error(error);
+    res.status(400).json({ error: "Error al actualizar el jugador" });
   }
 });
 
