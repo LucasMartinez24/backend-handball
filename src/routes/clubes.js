@@ -79,65 +79,93 @@ router.delete("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const clubConJugadores = await prisma.club.findUnique({
-      where: { id: id },
-      include: { jugadores: true },
+    // 1. Buscamos el club con TODAS sus dependencias para recolectar archivos
+    const club = await prisma.club.findUnique({
+      where: { id },
+      include: {
+        jugadores: true,
+        tickets: {
+          include: {
+            messages: { include: { attachments: true } },
+          },
+        },
+      },
     });
 
-    if (!clubConJugadores) {
-      return res.status(404).json({ error: "Club no encontrado" });
-    }
+    if (!club) return res.status(404).json({ error: "Club no encontrado" });
 
-    const archivosABorrar = [];
-    if (clubConJugadores.logoUrl)
-      archivosABorrar.push(clubConJugadores.logoUrl);
-
-    clubConJugadores.jugadores.forEach((jugador) => {
-      if (jugador.fichaMedicaUrl) archivosABorrar.push(jugador.fichaMedicaUrl);
-      if (jugador.autorizacionUrl)
-        archivosABorrar.push(jugador.autorizacionUrl);
+    // 2. RECOLECCIÓN Y BORRADO FÍSICO DE ARCHIVOS (Igual que antes)
+    const archivos = [];
+    if (club.logoUrl) archivos.push(club.logoUrl);
+    club.jugadores.forEach((j) => {
+      if (j.fichaMedicaUrl) archivos.push(j.fichaMedicaUrl);
+      if (j.autorizacionUrl) archivos.push(j.autorizacionUrl);
+      if (j.fichaJugadorUrl) archivos.push(j.fichaJugadorUrl);
+    });
+    club.tickets.forEach((t) => {
+      t.messages.forEach((m) => {
+        m.attachments.forEach((a) => archivos.push(a.url));
+      });
     });
 
-    archivosABorrar.forEach((rutaRelativa) => {
-      const rutaLimpia = rutaRelativa.startsWith("/")
-        ? rutaRelativa.substring(1)
-        : rutaRelativa;
-      const rutaAbsoluta = path.join(__dirname, "../../", rutaLimpia);
-
-      if (fs.existsSync(rutaAbsoluta)) {
-        fs.unlink(rutaAbsoluta, (err) => {
-          if (err)
-            console.error(`Error al borrar archivo: ${rutaAbsoluta}`, err);
-        });
+    archivos.forEach((ruta) => {
+      if (ruta) {
+        const pathAbsoluto = path.join(
+          __dirname,
+          "../../",
+          ruta.startsWith("/") ? ruta.substring(1) : ruta,
+        );
+        if (fs.existsSync(pathAbsoluto)) fs.unlinkSync(pathAbsoluto);
       }
     });
 
-    // --- SOLUCIÓN AL ERROR P2003 ---
-    await prisma.$transaction([
-      // 1. Borrar jugadores asociados
-      prisma.jugador.deleteMany({ where: { clubId: id } }),
+    // 3. TRANSACCIÓN ATÓMICA: Borrado en orden jerárquico inverso
+    await prisma.$transaction(async (tx) => {
+      // A. Limpiar Soporte (Nivel más profundo)
+      const ticketIds = club.tickets.map((t) => t.id);
 
-      // 2. Borrar partidos donde el club sea local o visitante (Evita el error de Foreign Key)
-      prisma.partido.deleteMany({
+      // Borrar adjuntos de mensajes de soporte
+      await tx.attachment.deleteMany({
+        where: { message: { ticketId: { in: ticketIds } } },
+      });
+
+      // Borrar mensajes de soporte
+      await tx.message.deleteMany({
+        where: { ticketId: { in: ticketIds } },
+      });
+
+      // Borrar los tickets
+      await tx.ticket.deleteMany({ where: { clubId: id } });
+
+      // B. Limpiar Torneos y Competencias
+      // Borrar posiciones en tablas
+      await tx.posicion.deleteMany({ where: { clubId: id } });
+
+      // Borrar partidos donde el club participó (Local o Visitante)
+      await tx.partido.deleteMany({
         where: {
           OR: [{ localId: id }, { visitanteId: id }],
         },
-      }),
+      });
 
-      // 3. Finalmente borrar el club
-      prisma.club.delete({ where: { id: id } }),
-    ]);
+      // C. Limpiar Jugadores
+      await tx.jugador.deleteMany({ where: { clubId: id } });
+
+      // D. FINALMENTE: Borrar el Club
+      await tx.club.delete({ where: { id } });
+    });
 
     res.json({
-      message: "Club, jugadores, partidos y archivos eliminados exitosamente.",
+      message:
+        "Club y todas sus dependencias (jugadores, partidos, tickets) eliminados correctamente.",
     });
   } catch (error) {
-    console.error("Error crítico en eliminación:", error);
-    res
-      .status(500)
-      .json({
-        error: "No se pudo eliminar el club debido a dependencias activas.",
-      });
+    console.error("ERROR DETALLADO:", error);
+    res.status(500).json({
+      error: "No se pudo eliminar el club.",
+      detalle:
+        "Existen dependencias activas en el sistema de torneos o soporte.",
+    });
   }
 });
 
