@@ -46,7 +46,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Límite de 5MB por archivo para no saturar el VPS
+  limits: { fileSize: 15 * 1024 * 1024 }, // Límite de 5MB por archivo para no saturar el VPS
 });
 
 module.exports = upload;
