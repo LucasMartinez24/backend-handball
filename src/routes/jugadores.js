@@ -28,6 +28,8 @@ const borrarArchivoFisico = (relativeUrl) => {
   }
 };
 
+// --- RUTAS ---
+
 // A. OBTENER JUGADORES
 router.get("/", async (req, res) => {
   const { clubId } = req.query;
@@ -62,13 +64,23 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// C. CREAR JUGADOR
+// C. CREAR JUGADOR (CON LIMPIEZA DE DATOS)
 router.post("/", cpUpload, async (req, res) => {
   try {
     const data = req.body;
+
+    // --- LIMPIEZA DE SEGURIDAD (Elimina todo lo que no sea número) ---
+    const dniLimpio = data.dni ? data.dni.toString().replace(/\D/g, "") : "";
+    const pesoLimpio = data.peso
+      ? data.peso.toString().replace(/\D/g, "")
+      : null;
+    const alturaLimpia = data.altura
+      ? data.altura.toString().replace(/\D/g, "")
+      : null;
+
     const nuevoJugador = await prisma.jugador.create({
       data: {
-        dni: data.dni,
+        dni: dniLimpio,
         nombreCompleto: data.nombreCompleto,
         fechaNacimiento: new Date(data.fechaNacimiento),
         genero: data.genero,
@@ -76,8 +88,8 @@ router.post("/", cpUpload, async (req, res) => {
         email: data.email,
         whatsapp: data.whatsapp,
         tutorPhone: data.tutorPhone,
-        peso: data.peso ? parseFloat(data.peso) : null,
-        altura: data.altura ? parseInt(data.altura) : null,
+        peso: pesoLimpio ? parseFloat(pesoLimpio) : null,
+        altura: alturaLimpia ? parseInt(alturaLimpia) : null,
         categoria: data.categoria,
         equipo: data.equipo,
         manoHabil: data.manoHabil,
@@ -96,7 +108,6 @@ router.post("/", cpUpload, async (req, res) => {
     });
     res.status(201).json(nuevoJugador);
   } catch (error) {
-    // --- LIMPIEZA DE ARCHIVOS ---
     if (req.files) {
       Object.keys(req.files).forEach((key) => {
         req.files[key].forEach((file) => {
@@ -105,47 +116,51 @@ router.post("/", cpUpload, async (req, res) => {
       });
     }
 
-    // --- MANEJO DE DNI DUPLICADO ---
     if (error.code === "P2002") {
       try {
-        // Buscamos el club al que pertenece el jugador existente
         const jugadorExistente = await prisma.jugador.findUnique({
-          where: { dni: req.body.dni },
+          where: { dni: req.body.dni.toString().replace(/\D/g, "") },
           include: { club: { select: { nombre: true } } },
         });
-
         const nombreClub = jugadorExistente?.club?.nombre || "otro club";
-
         return res.status(400).json({
           error: `El jugador ya se encuentra registrado para el club: ${nombreClub}. Comuníquese con soporte si cree que hay un error.`,
         });
       } catch (dbError) {
-        // Por si falla la búsqueda del club, mandamos el mensaje genérico
         return res
           .status(400)
           .json({ error: "El DNI ya se encuentra registrado." });
       }
     }
-
     console.error(error);
     res.status(500).json({ error: "Error al crear el jugador" });
   }
 });
 
-// D. ACTUALIZAR JUGADOR
+// D. ACTUALIZAR JUGADOR (CON LIMPIEZA DE DATOS)
 router.put("/:id", cpUpload, async (req, res) => {
   const { id } = req.params;
   const data = req.body;
   try {
     const jugadorActual = await prisma.jugador.findUnique({ where: { id } });
     if (!jugadorActual) {
-      // Si no existe, borramos lo que se subió por las dudas
       if (req.files)
         Object.keys(req.files).forEach((k) =>
           req.files[k].forEach((f) => fs.unlinkSync(f.path)),
         );
       return res.status(404).json({ error: "No encontrado" });
     }
+
+    // --- LIMPIEZA DE SEGURIDAD ---
+    const dniLimpio = data.dni
+      ? data.dni.toString().replace(/\D/g, "")
+      : jugadorActual.dni;
+    const pesoLimpio = data.peso
+      ? data.peso.toString().replace(/\D/g, "")
+      : undefined;
+    const alturaLimpia = data.altura
+      ? data.altura.toString().replace(/\D/g, "")
+      : undefined;
 
     let { fichaMedicaUrl, autorizacionUrl, fichaJugadorUrl } = jugadorActual;
 
@@ -167,7 +182,7 @@ router.put("/:id", cpUpload, async (req, res) => {
     const actualizado = await prisma.jugador.update({
       where: { id },
       data: {
-        dni: data.dni,
+        dni: dniLimpio,
         nombreCompleto: data.nombreCompleto,
         genero: data.genero,
         nacionalidad: data.nacionalidad,
@@ -180,8 +195,8 @@ router.put("/:id", cpUpload, async (req, res) => {
         fechaNacimiento: data.fechaNacimiento
           ? new Date(data.fechaNacimiento)
           : undefined,
-        peso: data.peso ? parseFloat(data.peso) : undefined,
-        altura: data.altura ? parseInt(data.altura) : undefined,
+        peso: pesoLimpio ? parseFloat(pesoLimpio) : undefined,
+        altura: alturaLimpia ? parseInt(alturaLimpia) : undefined,
         fichaMedicaUrl,
         autorizacionUrl,
         fichaJugadorUrl,
@@ -189,7 +204,6 @@ router.put("/:id", cpUpload, async (req, res) => {
     });
     res.json(actualizado);
   } catch (error) {
-    // --- INICIO LIMPIEZA DE ARCHIVOS NUEVOS SI FALLA EL UPDATE ---
     if (req.files) {
       Object.keys(req.files).forEach((key) => {
         req.files[key].forEach((file) => {
@@ -197,8 +211,6 @@ router.put("/:id", cpUpload, async (req, res) => {
         });
       });
     }
-    // --- FIN LIMPIEZA ---
-
     console.error(error);
     res.status(400).json({ error: "Error al actualizar el jugador" });
   }
