@@ -10,6 +10,7 @@ const storage = multer.diskStorage({
     // 2. Determinamos la subcarpeta según el nombre del campo (fieldname) que viene de Angular
     let subFolder = "";
 
+    // ... dentro de storage destination ...
     switch (file.fieldname) {
       case "logo":
         subFolder = "logos";
@@ -19,6 +20,9 @@ const storage = multer.diskStorage({
         break;
       case "autorizacionPadres":
         subFolder = "documentos/autorizaciones";
+        break;
+      case "fichaJugador": // <--- AGREGAR ESTO
+        subFolder = "documentos/fichas-jugadores";
         break;
       default:
         subFolder = "otros";
