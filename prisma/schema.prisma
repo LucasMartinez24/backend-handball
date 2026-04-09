@@ -7,6 +7,7 @@ datasource db {
   provider = "mysql"
 }
 
+// --- MODELO JUGADOR ---
 model Jugador {
   id              String   @id @default(uuid())
   dni             String   @unique
@@ -20,7 +21,7 @@ model Jugador {
   peso            Float?
   altura          Int?
   categoria       String?
-  equipo          String?  // <--- NUEVO CAMPO (A, B o C)
+  equipo          String?  // A, B o C
   manoHabil       String?  @default("Derecha")
   estado          String   @default("Pendiente")
 
@@ -28,115 +29,147 @@ model Jugador {
   autorizacionUrl String?
   fichaJugadorUrl String? 
 
-  clubId    String
-  club      Club     @relation(fields: [clubId], references: [id])
-  createdAt DateTime @default(now())
+  clubId          String
+  club            Club     @relation(fields: [clubId], references: [id])
+  
+  eventos         EventoPartido[]
+  
+  createdAt       DateTime @default(now())
 }
+
+// --- MODELO TORNEO ---
 model Torneo {
-  id          String   @id @default(uuid())
-  nombre      String
-  categoria   String
-  rama        String
-  formato     String // <--- Este es el que faltaba en el cliente
-  idaVuelta   Boolean  @default(false)
-  estado      String   @default("Upcoming")
-  fechaInicio DateTime
-  progreso    Int      @default(0)
-  colorClase  String
+  id              String   @id @default(uuid())
+  nombre          String
+  categoria       String
+  rama            String
+  formato         String   
+  idaVuelta       Boolean  @default(false)
+  estado          String   @default("Upcoming")
+  fechaInicio     DateTime
+  progreso        Int      @default(0)
+  colorClase      String
 
   tablaPosiciones Posicion[]
   partidos        Partido[]
-  createdAt       DateTime   @default(now())
+  createdAt       DateTime @default(now())
 }
 
+// --- MODELO POSICION ---
+// Limpio: Los invitados ahora son Clubes, así que solo necesitamos relación con Club
 model Posicion {
-  id     String @id @default(uuid())
-  puntos Int    @default(0)
-  pj     Int    @default(0)
-  pg     Int    @default(0)
-  pe     Int    @default(0)
-  pp     Int    @default(0)
-  gf     Int    @default(0)
-  gc     Int    @default(0)
-  dg     Int    @default(0)
+  id        String @id @default(uuid())
+  puntos    Int    @default(0)
+  pj        Int    @default(0)
+  pg        Int    @default(0)
+  pe        Int    @default(0)
+  pp        Int    @default(0)
+  gf        Int    @default(0)
+  gc        Int    @default(0)
+  dg        Int    @default(0)
 
-  torneoId String
-  torneo   Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
+  torneoId  String
+  torneo    Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
 
-  clubId String
-  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId    String
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   @@unique([torneoId, clubId])
 }
 
+// --- MODELO CLUB ---
 model Club {
-  id       String  @id @default(uuid())
-  nombre   String
-  siglas   String  @unique
-  logoUrl  String?
-  username String  @unique
-  password String
+  id         String   @id @default(uuid())
+  nombre     String
+  siglas     String   @unique
+  logoUrl    String?
+  
+  // Opcionales para que los invitados no necesiten login
+  username   String?  @unique
+  password   String?
+  
+  // CLAVE: Para identificar visualmente en el frontend
+  esInvitado Boolean  @default(false)
 
-  // Relaciones existentes
   jugadores         Jugador[]
   tablasPosiciones  Posicion[]
   partidosLocal     Partido[]  @relation("RelacionLocal")
   partidosVisitante Partido[]  @relation("RelacionVisitante")
 
-  // --- RELACIÓN AGREGADA PARA TICKETS ---
-  tickets Ticket[] // <--- ESTO ES LO QUE FALTABA
-
-  created_at DateTime @default(now())
+  tickets           Ticket[]
+  created_at        DateTime @default(now())
 }
 
+// --- MODELO PARTIDO ---
+// Eliminados los campos "nombreInvitadoLocal/Visitante"
 model Partido {
-  id      String    @id @default(uuid())
-  jornada Int
-  fecha   DateTime?
-  lugar   String?
-  estado  String    @default("Programado")
+  id               String    @id @default(uuid())
+  torneoId         String
+  jornada          Int
+  
+  // Ahora local y visitante SIEMPRE son Clubes (federados o invitados)
+  localId          String
+  visitanteId      String
+  
+  fecha            DateTime?
+  lugar            String?   @default("Sede a definir")
+  estado           String    @default("Programado")
+  
+  golesLocal       Int       @default(0)
+  golesVisitante   Int       @default(0)
+  golesLocalHT     Int       @default(0)
+  golesVisitanteHT Int       @default(0)
+  
+  arbitro1         String?
+  arbitro2         String?
+  cronometrista    String?
+  observaciones    String?   @db.Text
 
-  golesLocal     Int @default(0)
-  golesVisitante Int @default(0)
-
-  // Relación con Torneo
-  torneoId String
-  torneo   Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
-
-  // RELACIONES CORREGIDAS: 
-  // 1. La etiqueta (ej: "RelacionLocal") debe ser IGUAL en Club y Partido.
-  // 2. Agregamos 'map' para evitar el error de nombres duplicados en MySQL.
-
-  localId String
-  local   Club   @relation("RelacionLocal", fields: [localId], references: [id], map: "FK_Partido_Local")
-
-  visitanteId String
-  visitante   Club   @relation("RelacionVisitante", fields: [visitanteId], references: [id], map: "FK_Partido_Visitante")
-
-  createdAt DateTime @default(now())
+  torneo           Torneo    @relation(fields: [torneoId], references: [id])
+  local            Club      @relation("RelacionLocal", fields: [localId], references: [id])
+  visitante        Club      @relation("RelacionVisitante", fields: [visitanteId], references: [id])
+  
+  eventos          EventoPartido[]
+  @@index([torneoId])
 }
 
+// --- MODELO EVENTO PARTIDO ---
+model EventoPartido {
+  id             String   @id @default(uuid())
+  partidoId      String
+  jugadorId      String?  // Null si es un invitado manual cargado en el acta
+  nombreInvitado String?  // Nombre del jugador si jugadorId es null
+  numeroInvitado Int?
+  equipoId       String   // ID del club (federado o invitado)
+  tipo           String   // GOL, AMARILLA, DOS_MINUTOS, ROJA, AZUL
+  periodo        Int      @default(1)
+  
+  partido        Partido  @relation(fields: [partidoId], references: [id], onDelete: Cascade)
+  jugador        Jugador? @relation(fields: [jugadorId], references: [id])
+}
+
+// --- SOPORTE (TICKETS) ---
 model Ticket {
   id        String    @id @default(uuid())
   asunto    String
-  categoria String    @default("General") // <--- Valor por defecto evita el error P2011
+  categoria String    @default("General")
   status    String    @default("Abierto")
   clubId    String
-  club      Club      @relation(fields: [clubId], references: [id],onDelete: Cascade)
+  club      Club      @relation(fields: [clubId], references: [id], onDelete: Cascade)
   messages  Message[]
   createdAt DateTime  @default(now())
 }
 
 model Message {
-  id           String       @id @default(uuid())
-  text         String       @db.Text
-  senderRole   String       
-  senderName   String?      // <--- El "?" es vital para que no falle si no se envía
-  isInternal   Boolean      @default(false)
-  ticketId     String
-  ticket       Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  attachments  Attachment[]
-  createdAt    DateTime     @default(now())
+  id          String       @id @default(uuid())
+  text        String       @db.Text
+  senderRole  String       
+  senderName  String?      
+  isInternal  Boolean      @default(false)
+  ticketId    String
+  ticket      Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+  createdAt   DateTime     @default(now())
 }
 
 model Attachment {
@@ -145,4 +178,14 @@ model Attachment {
   url       String
   messageId String
   message   Message @relation(fields: [messageId], references: [id])
+}
+// --- MODELO STAFF (Federación) ---
+model Staff {
+  id        String   @id @default(uuid())
+  nombre    String
+  username  String   @unique
+  password  String
+  // Roles específicos: REP_FEDERACION, OFICIAL_MESA, JEFE_ARBITROS
+  role      String   
+  createdAt DateTime @default(now())
 }

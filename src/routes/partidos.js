@@ -2,8 +2,9 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 
-// GET /api/partidos/torneo/:torneoId/jornadas
-// Resuelve el error 404 de: http://localhost:3000/api/partidos/torneo/.../jornadas
+/**
+ * 1. OBTENER JORNADAS DISPONIBLES
+ */
 router.get("/torneo/:torneoId/jornadas", async (req, res) => {
   try {
     const jornadas = await prisma.partido.groupBy({
@@ -16,78 +17,10 @@ router.get("/torneo/:torneoId/jornadas", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-router.patch("/:id/resultado", async (req, res) => {
-  const { golesLocal, golesVisitante } = req.body;
-  const partidoId = req.params.id;
 
-  try {
-    const partido = await prisma.partido.findUnique({
-      where: { id: partidoId },
-      include: { torneo: true },
-    });
-
-    if (!partido)
-      return res.status(404).json({ error: "Partido no encontrado" });
-
-    // Calculamos puntos de Handball (Gana: 3, Empata: 1, Pierde: 0)
-    const ptsLocal =
-      golesLocal > golesVisitante ? 3 : golesLocal === golesVisitante ? 1 : 0;
-    const ptsVisit =
-      golesVisitante > golesLocal ? 3 : golesLocal === golesVisitante ? 1 : 0;
-
-    await prisma.$transaction([
-      // 1. Actualizar el partido
-      prisma.partido.update({
-        where: { id: partidoId },
-        data: { golesLocal, golesVisitante, estado: "Finalizado" },
-      }),
-      // 2. Actualizar Tabla Local
-      prisma.posicion.update({
-        where: {
-          torneoId_clubId: {
-            torneoId: partido.torneoId,
-            clubId: partido.localId,
-          },
-        },
-        data: {
-          pj: { increment: 1 },
-          pg: { increment: golesLocal > golesVisitante ? 1 : 0 },
-          pe: { increment: golesLocal === golesVisitante ? 1 : 0 },
-          pp: { increment: golesLocal < golesVisitante ? 1 : 0 },
-          gf: { increment: golesLocal },
-          gc: { increment: golesVisitante },
-          dg: { increment: golesLocal - golesVisitante },
-          puntos: { increment: ptsLocal },
-        },
-      }),
-      // 3. Actualizar Tabla Visitante
-      prisma.posicion.update({
-        where: {
-          torneoId_clubId: {
-            torneoId: partido.torneoId,
-            clubId: partido.visitanteId,
-          },
-        },
-        data: {
-          pj: { increment: 1 },
-          pg: { increment: golesVisitante > golesLocal ? 1 : 0 },
-          pe: { increment: golesLocal === golesVisitante ? 1 : 0 },
-          pp: { increment: golesVisitante < golesLocal ? 1 : 0 },
-          gf: { increment: golesVisitante },
-          gc: { increment: golesLocal },
-          dg: { increment: golesVisitante - golesLocal },
-          puntos: { increment: ptsVisit },
-        },
-      }),
-    ]);
-
-    res.json({ message: "Resultado y posiciones actualizadas" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-// GET /api/partidos/torneo/:torneoId/jornada/:numero
-// Resuelve el error 404 de: http://localhost:3000/api/partidos/torneo/.../jornada/1
+/**
+ * 2. OBTENER PARTIDOS POR JORNADA
+ */
 router.get("/torneo/:torneoId/jornada/:numero", async (req, res) => {
   try {
     const partidos = await prisma.partido.findMany({
@@ -96,8 +29,13 @@ router.get("/torneo/:torneoId/jornada/:numero", async (req, res) => {
         jornada: parseInt(req.params.numero),
       },
       include: {
-        local: { select: { nombre: true, logoUrl: true } },
-        visitante: { select: { nombre: true, logoUrl: true } },
+        local: {
+          select: { id: true, nombre: true, logoUrl: true, esInvitado: true },
+        },
+        visitante: {
+          select: { id: true, nombre: true, logoUrl: true, esInvitado: true },
+        },
+        eventos: true,
       },
     });
     res.json(partidos);
@@ -106,105 +44,154 @@ router.get("/torneo/:torneoId/jornada/:numero", async (req, res) => {
   }
 });
 
-// Crear fixture completo (Bulk)
-router.post("/bulk", async (req, res) => {
-  const { torneoId, jornadas } = req.body;
+/**
+ * 3. OFICIALIZAR RESULTADOS (MATCH REPORT)
+ */
+router.patch("/:id/resultado", async (req, res) => {
+  const {
+    golesLocal,
+    golesVisitante,
+    golesLocalHT,
+    golesVisitanteHT,
+    arbitro1,
+    arbitro2,
+    cronometrista,
+    observaciones,
+    detallesJugadores,
+  } = req.body;
+  const partidoId = req.params.id;
 
   try {
-    const clubIds = new Set();
-    const partidosData = [];
+    await prisma.$transaction(async (tx) => {
+      const partido = await tx.partido.findUnique({ where: { id: partidoId } });
+      if (!partido) throw new Error("Partido no encontrado");
 
-    jornadas.forEach((j) => {
-      j.partidos.forEach((p) => {
-        clubIds.add(p.local.id);
-        clubIds.add(p.visitante.id);
+      // 1. Actualizar Partido
+      await tx.partido.update({
+        where: { id: partidoId },
+        data: {
+          golesLocal: parseInt(golesLocal),
+          golesVisitante: parseInt(golesVisitante),
+          golesLocalHT: parseInt(golesLocalHT),
+          golesVisitanteHT: parseInt(golesVisitanteHT),
+          arbitro1,
+          arbitro2,
+          cronometrista,
+          observaciones,
+          estado: "Finalizado",
+        },
+      });
 
-        // Validación de fecha para evitar el RangeError
-        let fechaFinal = null;
-        if (p.fecha && p.fecha.trim() !== "") {
-          // Creamos la fecha base (Año, Mes, Día) a las 00:00 local
-          // Nota: El input date devuelve "YYYY-MM-DD", usamos split para evitar desfases
-          const [year, month, day] = p.fecha.split("-").map(Number);
-          fechaFinal = new Date(year, month - 1, day); // month es 0-indexed en JS
+      // 2. Procesar Eventos (Estadísticas e Invitados)
+      if (detallesJugadores && detallesJugadores.length > 0) {
+        await tx.eventoPartido.deleteMany({ where: { partidoId } });
+        const eventosData = [];
 
-          if (p.hora && p.hora.trim() !== "") {
-            const [hours, minutes] = p.hora.split(":").map(Number);
-            // Seteamos la hora exacta que elegiste en el frontend
-            fechaFinal.setHours(hours, minutes, 0, 0);
-          }
+        for (const j of detallesJugadores) {
+          const dorsal = parseInt(j.numeroInvitado || j.numero);
+          const equipoIdData = j.equipoId || null;
+
+          const baseEvento = {
+            partidoId,
+            equipoId: equipoIdData,
+            jugadorId: j.jugadorId || null,
+            nombreInvitado: j.jugadorId ? null : j.nombreCompleto || j.nombre,
+            numeroInvitado: dorsal,
+          };
+
+          // --- NOVEDAD: REGISTRO DE PRESENCIA ---
+          // Esto garantiza que el jugador se guarde aunque no tenga goles/tarjetas
+          eventosData.push({ ...baseEvento, tipo: "PRESENCIA" });
+
+          // Goles
+          for (let i = 0; i < (j.goles || 0); i++)
+            eventosData.push({ ...baseEvento, tipo: "GOL" });
+
+          // Amarillas
+          if (j.am > 0 || j.amarillas > 0)
+            eventosData.push({ ...baseEvento, tipo: "AMARILLA" });
+
+          // Exclusiones
+          for (let i = 0; i < (j.excl || j.exclusiones || 0); i++)
+            eventosData.push({ ...baseEvento, tipo: "DOS_MINUTOS" });
+
+          // Rojas y Azules
+          if (j.roja) eventosData.push({ ...baseEvento, tipo: "ROJA" });
+          if (j.azul) eventosData.push({ ...baseEvento, tipo: "AZUL" });
         }
 
-        partidosData.push({
-          torneoId: torneoId,
-          jornada: parseInt(j.numero),
-          localId: p.local.id,
-          visitanteId: p.visitante.id,
-          fecha: fechaFinal,
-          lugar: p.lugar || "Sede a definir",
-          estado: "Programado",
-        });
-      });
-    });
-
-    const resultado = await prisma.$transaction(async (tx) => {
-      // 1. ELIMINAR PARTIDOS PREVIOS: Limpiamos el fixture existente para este torneo
-      await tx.partido.deleteMany({
-        where: { torneoId: torneoId },
-      });
-
-      // 2. CREAR POSICIONES: Upsert para cada club participante
-      for (const clubId of clubIds) {
-        await tx.posicion.upsert({
-          where: { torneoId_clubId: { torneoId, clubId } },
-          update: {},
-          create: {
-            torneoId,
-            clubId,
-            puntos: 0,
-            pj: 0,
-            pg: 0,
-            pe: 0,
-            pp: 0,
-            gf: 0,
-            gc: 0,
-            dg: 0,
-          },
-        });
+        if (eventosData.length > 0)
+          await tx.eventoPartido.createMany({ data: eventosData });
       }
 
-      // 3. INSERTAR NUEVO FIXTURE
-      const partidosCreados = await tx.partido.createMany({
-        data: partidosData,
-        skipDuplicates: true,
-      });
+      // 3. Actualizar Posiciones (UPSERT DINÁMICO)
+      const ptsL =
+        golesLocal > golesVisitante ? 2 : golesLocal === golesVisitante ? 1 : 0;
+      const ptsV =
+        golesVisitante > golesLocal ? 2 : golesLocal === golesVisitante ? 1 : 0;
 
-      // 4. ACTUALIZAR ESTADO DEL TORNEO
-      await tx.torneo.update({
-        where: { id: torneoId },
-        data: { estado: "In Progress" },
-      });
+      const upsertPosicion = async (isLocal) => {
+        const clubId = isLocal ? partido.localId : partido.visitanteId;
+        const gF = isLocal ? golesLocal : golesVisitante;
+        const gC = isLocal ? golesVisitante : golesLocal;
+        const pts = isLocal ? ptsL : ptsV;
 
-      return partidosCreados;
+        const where = {
+          torneoId_clubId: {
+            torneoId: partido.torneoId,
+            clubId: clubId,
+          },
+        };
+
+        const dataBase = {
+          pj: 1,
+          puntos: pts,
+          gf: parseInt(gF),
+          gc: parseInt(gC),
+          dg: gF - gC,
+          pg: gF > gC ? 1 : 0,
+          pe: gF === gC ? 1 : 0,
+          pp: gF < gC ? 1 : 0,
+        };
+
+        await tx.posicion.upsert({
+          where,
+          update: {
+            pj: { increment: 1 },
+            puntos: { increment: pts },
+            gf: { increment: parseInt(gF) },
+            gc: { increment: parseInt(gC) },
+            dg: { increment: gF - gC },
+            pg: { increment: gF > gC ? 1 : 0 },
+            pe: { increment: gF === gC ? 1 : 0 },
+            pp: { increment: gF < gC ? 1 : 0 },
+          },
+          create: {
+            ...dataBase,
+            torneoId: partido.torneoId,
+            clubId: clubId,
+          },
+        });
+      };
+
+      await upsertPosicion(true); // Local
+      await upsertPosicion(false); // Visitante
     });
-
-    res.json({
-      message: "Fixture actualizado correctamente",
-      count: resultado.count,
-    });
+    res.json({ success: true });
   } catch (error) {
-    console.error("Error al actualizar fixture:", error);
+    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * 4. OBTENER FIXTURE COMPLETO
+ */
 router.get("/torneo/:torneoId", async (req, res) => {
-  const { torneoId } = req.params;
   try {
     const partidos = await prisma.partido.findMany({
-      where: { torneoId },
-      include: {
-        local: true, // Incluye la info completa del club local
-        visitante: true, // Incluye la info completa del club visitante
-      },
+      where: { torneoId: req.params.torneoId },
+      include: { local: true, visitante: true },
       orderBy: { jornada: "asc" },
     });
     res.json(partidos);
@@ -212,4 +199,61 @@ router.get("/torneo/:torneoId", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * 5. SINCRONIZAR FIXTURE
+ */
+router.post("/torneo/:torneoId/fixture", async (req, res) => {
+  const { torneoId } = req.params;
+  const { jornadas } = req.body;
+  try {
+    const operaciones = [];
+    for (const jornada of jornadas) {
+      for (const p of jornada.partidos) {
+        const data = {
+          torneoId,
+          jornada: parseInt(jornada.numero),
+          localId: p.localId,
+          visitanteId: p.visitanteId,
+          nombreInvitadoLocal: p.nombreInvitadoLocal,
+          nombreInvitadoVisitante: p.nombreInvitadoVisitante,
+          fecha: p.fecha
+            ? new Date(`${p.fecha}T${p.hora || "00:00"}:00`)
+            : null,
+          lugar: p.lugar,
+          estado: p.estado || "Programado",
+        };
+        if (p.id)
+          operaciones.push(
+            prisma.partido.update({ where: { id: p.id }, data }),
+          );
+        else operaciones.push(prisma.partido.create({ data }));
+      }
+    }
+    await prisma.$transaction(operaciones);
+    res.json({ message: "Sincronizado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 6. ELIMINAR PARTIDO
+ */
+router.delete("/:id", async (req, res) => {
+  try {
+    const partido = await prisma.partido.findUnique({
+      where: { id: req.params.id },
+    });
+    if (partido?.estado === "Finalizado")
+      return res
+        .status(400)
+        .json({ error: "No se puede borrar partido oficial." });
+    await prisma.partido.delete({ where: { id: req.params.id } });
+    res.json({ message: "Eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

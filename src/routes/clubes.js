@@ -35,7 +35,14 @@ router.post("/", upload.single("logo"), async (req, res) => {
     });
     res.json(nuevoClub);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // P2002 es el código de Prisma para violación de restricción única
+    if (error.code === "P2002") {
+      return res.status(400).json({
+        message:
+          "Las siglas o el nombre de usuario ya están registrados por otra institución.",
+      });
+    }
+    res.status(500).json({ message: "Error interno del servidor" });
   }
 });
 
@@ -168,5 +175,97 @@ router.delete("/:id", async (req, res) => {
     });
   }
 });
+// backend/routes/clubes.js
 
+router.get("/:id/jugadores", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const jugadores = await prisma.jugador.findMany({
+      where: {
+        clubId: id,
+        // Quitamos el filtro de estado temporalmente para asegurar que carguen
+      },
+      select: {
+        id: true,
+        nombreCompleto: true,
+        dni: true,
+        categoria: true,
+        equipo: true,
+      },
+      orderBy: {
+        nombreCompleto: "asc",
+      },
+    });
+
+    console.log(
+      `Jugadores encontrados para el club ${id}: ${jugadores.length}`,
+    );
+    res.json(jugadores);
+  } catch (error) {
+    console.error("Error al obtener jugadores del club:", error);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+// backend/routes/clubes.js
+
+router.get("/:id/agenda-completa", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const partidos = await prisma.partido.findMany({
+      where: {
+        OR: [{ localId: id }, { visitanteId: id }],
+      },
+      include: {
+        local: { select: { nombre: true, logoUrl: true, id: true } },
+        visitante: { select: { nombre: true, logoUrl: true, id: true } },
+        torneo: { select: { nombre: true, categoria: true, rama: true } },
+      },
+      orderBy: {
+        fecha: "asc",
+      },
+    });
+
+    res.json(partidos);
+  } catch (error) {
+    res.status(500).json({ error: "Error al obtener la agenda del club" });
+  }
+});
+// NUEVA RUTA: CREAR CLUB INVITADO RÁPIDO
+router.post("/invitado-rapido", async (req, res) => {
+  const { nombre, siglas } = req.body;
+  try {
+    const nuevoInvitado = await prisma.club.create({
+      data: {
+        nombre: nombre.toUpperCase(),
+        siglas: siglas.toUpperCase(),
+        esInvitado: true,
+        // No enviamos username ni password, quedan como null
+      },
+    });
+    res.json(nuevoInvitado);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+router.get("/:id/agenda-completa", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const partidos = await prisma.partido.findMany({
+      where: {
+        OR: [{ localId: id }, { visitanteId: id }],
+      },
+      select: {
+        torneoId: true, // Solo necesitamos el ID del torneo para contar
+        estado: true,
+      },
+    });
+
+    res.json(partidos);
+  } catch (error) {
+    console.error("Error al obtener agenda:", error);
+    res.status(500).json({ error: "Error al obtener la agenda del club" });
+  }
+});
 module.exports = router;

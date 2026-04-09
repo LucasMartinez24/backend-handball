@@ -5,6 +5,8 @@ const upload = require("../middleware/upload");
 const fs = require("fs");
 const path = require("path");
 
+// --- UTILIDADES ---
+
 const calcularCategoria = (fechaNacimiento) => {
   const fecha = new Date(fechaNacimiento);
   const edad = 2026 - fecha.getFullYear();
@@ -15,22 +17,28 @@ const calcularCategoria = (fechaNacimiento) => {
   return "Infantiles";
 };
 
+const borrarArchivoFisico = (relativeUrl) => {
+  if (relativeUrl) {
+    const fullPath = path.join(__dirname, "..", "..", relativeUrl);
+    if (fs.existsSync(fullPath)) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch (err) {
+        console.error("Error al borrar archivo:", err);
+      }
+    }
+  }
+};
+
 const cpUpload = upload.fields([
   { name: "fichaMedica", maxCount: 1 },
   { name: "autorizacionPadres", maxCount: 1 },
   { name: "fichaJugador", maxCount: 1 },
 ]);
 
-const borrarArchivoFisico = (relativeUrl) => {
-  if (relativeUrl) {
-    const fullPath = path.join(__dirname, "..", "..", relativeUrl);
-    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-  }
-};
-
 // --- RUTAS ---
 
-// A. OBTENER JUGADORES
+// A. OBTENER JUGADORES (Con filtro por club)
 router.get("/", async (req, res) => {
   const { clubId } = req.query;
   try {
@@ -64,12 +72,10 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// C. CREAR JUGADOR (CON LIMPIEZA DE DATOS)
+// C. CREAR JUGADOR
 router.post("/", cpUpload, async (req, res) => {
   try {
     const data = req.body;
-
-    // --- LIMPIEZA DE SEGURIDAD (Elimina todo lo que no sea número) ---
     const dniLimpio = data.dni ? data.dni.toString().replace(/\D/g, "") : "";
     const pesoLimpio = data.peso
       ? data.peso.toString().replace(/\D/g, "")
@@ -90,20 +96,22 @@ router.post("/", cpUpload, async (req, res) => {
         tutorPhone: data.tutorPhone,
         peso: pesoLimpio ? parseFloat(pesoLimpio) : null,
         altura: alturaLimpia ? parseInt(alturaLimpia) : null,
-        categoria: data.categoria,
         equipo: data.equipo,
         manoHabil: data.manoHabil,
         estado: "Pendiente",
         clubId: data.clubId,
-        fichaMedicaUrl: req.files["fichaMedica"]
-          ? `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`
-          : null,
-        autorizacionUrl: req.files["autorizacionPadres"]
-          ? `/uploads/documentos/autorizaciones/${req.files["autorizacionPadres"][0].filename}`
-          : null,
-        fichaJugadorUrl: req.files["fichaJugador"]
-          ? `/uploads/documentos/fichas-jugadores/${req.files["fichaJugador"][0].filename}`
-          : null,
+        fichaMedicaUrl:
+          req.files && req.files["fichaMedica"]
+            ? `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`
+            : null,
+        autorizacionUrl:
+          req.files && req.files["autorizacionPadres"]
+            ? `/uploads/documentos/autorizaciones/${req.files["autorizacionPadres"][0].filename}`
+            : null,
+        fichaJugadorUrl:
+          req.files && req.files["fichaJugador"]
+            ? `/uploads/documentos/fichas-jugadores/${req.files["fichaJugador"][0].filename}`
+            : null,
       },
     });
     res.status(201).json(nuevoJugador);
@@ -115,43 +123,39 @@ router.post("/", cpUpload, async (req, res) => {
         });
       });
     }
-
     if (error.code === "P2002") {
-      try {
-        const jugadorExistente = await prisma.jugador.findUnique({
-          where: { dni: req.body.dni.toString().replace(/\D/g, "") },
-          include: { club: { select: { nombre: true } } },
-        });
-        const nombreClub = jugadorExistente?.club?.nombre || "otro club";
-        return res.status(400).json({
-          error: `El jugador ya se encuentra registrado para el club: ${nombreClub}. Comuníquese con soporte si cree que hay un error.`,
-        });
-      } catch (dbError) {
-        return res
-          .status(400)
-          .json({ error: "El DNI ya se encuentra registrado." });
-      }
+      return res
+        .status(400)
+        .json({ error: "El DNI ya se encuentra registrado en el sistema." });
     }
-    console.error(error);
     res.status(500).json({ error: "Error al crear el jugador" });
   }
 });
 
-// D. ACTUALIZAR JUGADOR (CON LIMPIEZA DE DATOS)
+// D. ACTUALIZACIÓN RÁPIDA DE ESTADO (Audit de Plantilla)
+// Esta ruta es la que usa el componente ClubList para aprobar/rechazar
+router.patch("/:id/estado", async (req, res) => {
+  const { id } = req.params;
+  const { estado } = req.body;
+  try {
+    const actualizado = await prisma.jugador.update({
+      where: { id },
+      data: { estado },
+    });
+    res.json(actualizado);
+  } catch (error) {
+    res.status(400).json({ error: "No se pudo actualizar el estado" });
+  }
+});
+
+// E. ACTUALIZAR JUGADOR COMPLETO (Edición de perfil)
 router.put("/:id", cpUpload, async (req, res) => {
   const { id } = req.params;
   const data = req.body;
   try {
     const jugadorActual = await prisma.jugador.findUnique({ where: { id } });
-    if (!jugadorActual) {
-      if (req.files)
-        Object.keys(req.files).forEach((k) =>
-          req.files[k].forEach((f) => fs.unlinkSync(f.path)),
-        );
-      return res.status(404).json({ error: "No encontrado" });
-    }
+    if (!jugadorActual) return res.status(404).json({ error: "No encontrado" });
 
-    // --- LIMPIEZA DE SEGURIDAD ---
     const dniLimpio = data.dni
       ? data.dni.toString().replace(/\D/g, "")
       : jugadorActual.dni;
@@ -192,6 +196,7 @@ router.put("/:id", cpUpload, async (req, res) => {
         manoHabil: data.manoHabil,
         equipo: data.equipo,
         clubId: data.clubId,
+        estado: data.estado !== undefined ? data.estado : jugadorActual.estado,
         fechaNacimiento: data.fechaNacimiento
           ? new Date(data.fechaNacimiento)
           : undefined,
@@ -204,19 +209,12 @@ router.put("/:id", cpUpload, async (req, res) => {
     });
     res.json(actualizado);
   } catch (error) {
-    if (req.files) {
-      Object.keys(req.files).forEach((key) => {
-        req.files[key].forEach((file) => {
-          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        });
-      });
-    }
     console.error(error);
     res.status(400).json({ error: "Error al actualizar el jugador" });
   }
 });
 
-// E. ELIMINAR JUGADOR
+// F. ELIMINAR JUGADOR
 router.delete("/:id", async (req, res) => {
   try {
     const jugador = await prisma.jugador.findUnique({
