@@ -56,19 +56,50 @@ router.get("/:id", async (req, res) => {
   }
 });
 // DELETE /api/torneos/:id
+// DELETE /api/torneos/:id
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    // Prisma eliminará automáticamente partidos y posiciones si configuraste Cascade
-    await prisma.torneo.delete({
-      where: { id: id },
+    // Iniciamos una transacción para borrar en cascada manualmente
+    await prisma.$transaction(async (tx) => {
+      // 1. Borrar Eventos de los partidos que pertenecen a este torneo
+      await tx.eventoPartido.deleteMany({
+        where: {
+          partido: {
+            torneoId: id,
+          },
+        },
+      });
+
+      // 2. Borrar todos los Partidos del torneo
+      await tx.partido.deleteMany({
+        where: {
+          torneoId: id,
+        },
+      });
+
+      // 3. Borrar la Tabla de Posiciones del torneo
+      await tx.posicion.deleteMany({
+        where: {
+          torneoId: id,
+        },
+      });
+
+      // 4. Finalmente, borrar el registro del Torneo
+      await tx.torneo.delete({
+        where: { id: id },
+      });
     });
-    res.json({ message: "Torneo eliminado correctamente" });
+
+    res.json({
+      message:
+        "Torneo y toda su información asociada eliminados correctamente.",
+    });
   } catch (error) {
-    console.error(error);
+    console.error("Error al eliminar torneo:", error);
     res.status(500).json({
-      error:
-        "Error al eliminar el torneo. Asegúrese de que no existan dependencias críticas.",
+      error: "Error interno al intentar eliminar el torneo y sus dependencias.",
+      details: error.message,
     });
   }
 });

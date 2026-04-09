@@ -107,25 +107,26 @@ model Partido {
   torneoId         String
   jornada          Int
   
-  // Ahora local y visitante SIEMPRE son Clubes (federados o invitados)
   localId          String
   visitanteId      String
   
   fecha            DateTime?
-  lugar            String?   @default("Sede a definir")
-  estado           String    @default("Programado")
+  lugar            String?    @default("Sede a definir")
+  estado           String     @default("Programado")
   
-  golesLocal       Int       @default(0)
-  golesVisitante   Int       @default(0)
-  golesLocalHT     Int       @default(0)
-  golesVisitanteHT Int       @default(0)
+  golesLocal       Int        @default(0)
+  golesVisitante   Int        @default(0)
+  golesLocalHT     Int        @default(0)
+  golesVisitanteHT Int        @default(0)
   
   arbitro1         String?
   arbitro2         String?
   cronometrista    String?
-  observaciones    String?   @db.Text
+  observaciones    String?    @db.Text
 
-  torneo           Torneo    @relation(fields: [torneoId], references: [id])
+  // CAMBIO: Se agregó onDelete: Cascade para evitar el error P2003
+  torneo           Torneo    @relation(fields: [torneoId], references: [id], onDelete: Cascade)
+  
   local            Club      @relation("RelacionLocal", fields: [localId], references: [id])
   visitante        Club      @relation("RelacionVisitante", fields: [visitanteId], references: [id])
   
