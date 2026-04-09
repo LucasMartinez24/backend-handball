@@ -21,6 +21,7 @@ model Jugador {
   peso            Float?
   altura          Int?
   categoria       String?
+  categoriaEspecial String?
   equipo          String?  // A, B o C
   manoHabil       String?  @default("Derecha")
   estado          String   @default("Pendiente")

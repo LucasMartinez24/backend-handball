@@ -7,16 +7,6 @@ const path = require("path");
 
 // --- UTILIDADES ---
 
-const calcularCategoria = (fechaNacimiento) => {
-  const fecha = new Date(fechaNacimiento);
-  const edad = 2026 - fecha.getFullYear();
-  if (edad >= 18) return "Primera";
-  if (edad >= 16) return "Juvenil";
-  if (edad >= 14) return "Cadete";
-  if (edad >= 12) return "Menores";
-  return "Infantiles";
-};
-
 const borrarArchivoFisico = (relativeUrl) => {
   if (relativeUrl) {
     const fullPath = path.join(__dirname, "..", "..", relativeUrl);
@@ -47,11 +37,7 @@ router.get("/", async (req, res) => {
       include: { club: true },
       orderBy: { createdAt: "desc" },
     });
-    const respuesta = jugadores.map((j) => ({
-      ...j,
-      categoria: calcularCategoria(j.fechaNacimiento),
-    }));
-    res.json(respuesta);
+    res.json(jugadores);
   } catch (error) {
     res.status(500).json({ error: "Error interno del servidor" });
   }
@@ -73,62 +59,52 @@ router.get("/:id", async (req, res) => {
 });
 
 // C. CREAR JUGADOR
+// routes/jugadores.js
+
+// E:\Federacion de Handball\backend-handball\src\routes\jugadores.js
+
 router.post("/", cpUpload, async (req, res) => {
   try {
     const data = req.body;
-    const dniLimpio = data.dni ? data.dni.toString().replace(/\D/g, "") : "";
-    const pesoLimpio = data.peso
-      ? data.peso.toString().replace(/\D/g, "")
-      : null;
-    const alturaLimpia = data.altura
-      ? data.altura.toString().replace(/\D/g, "")
-      : null;
+
+    // Construimos el objeto de datos asegurando que solo enviamos lo que Prisma conoce
+    const insertData = {
+      dni: data.dni.toString(),
+      nombreCompleto: data.nombreCompleto,
+      fechaNacimiento: new Date(data.fechaNacimiento),
+      categoria: data.categoria || "Primera",
+      genero: data.genero,
+      nacionalidad: data.nacionalidad,
+      email: data.email || null,
+      whatsapp: data.whatsapp || null,
+      tutorPhone: data.tutorPhone || null,
+      equipo: data.equipo || "A",
+      manoHabil: data.manoHabil || "Derecha",
+      clubId: data.clubId,
+      fichaMedicaUrl: req.files["fichaMedica"]
+        ? `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`
+        : null,
+      autorizacionUrl: req.files["autorizacionPadres"]
+        ? `/uploads/documentos/autorizaciones/${req.files["autorizacionPadres"][0].filename}`
+        : null,
+      fichaJugadorUrl: req.files["fichaJugador"]
+        ? `/uploads/documentos/fichas-jugadores/${req.files["fichaJugador"][0].filename}`
+        : null,
+    };
+
+    // SOLO agregamos categoriaEspecial si realmente existe en el modelo y viene en el body
+    if (data.categoriaEspecial !== undefined) {
+      insertData.categoriaEspecial = data.categoriaEspecial;
+    }
 
     const nuevoJugador = await prisma.jugador.create({
-      data: {
-        dni: dniLimpio,
-        nombreCompleto: data.nombreCompleto,
-        fechaNacimiento: new Date(data.fechaNacimiento),
-        genero: data.genero,
-        nacionalidad: data.nacionalidad,
-        email: data.email,
-        whatsapp: data.whatsapp,
-        tutorPhone: data.tutorPhone,
-        peso: pesoLimpio ? parseFloat(pesoLimpio) : null,
-        altura: alturaLimpia ? parseInt(alturaLimpia) : null,
-        equipo: data.equipo,
-        manoHabil: data.manoHabil,
-        estado: "Pendiente",
-        clubId: data.clubId,
-        fichaMedicaUrl:
-          req.files && req.files["fichaMedica"]
-            ? `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`
-            : null,
-        autorizacionUrl:
-          req.files && req.files["autorizacionPadres"]
-            ? `/uploads/documentos/autorizaciones/${req.files["autorizacionPadres"][0].filename}`
-            : null,
-        fichaJugadorUrl:
-          req.files && req.files["fichaJugador"]
-            ? `/uploads/documentos/fichas-jugadores/${req.files["fichaJugador"][0].filename}`
-            : null,
-      },
+      data: insertData,
     });
+
     res.status(201).json(nuevoJugador);
   } catch (error) {
-    if (req.files) {
-      Object.keys(req.files).forEach((key) => {
-        req.files[key].forEach((file) => {
-          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        });
-      });
-    }
-    if (error.code === "P2002") {
-      return res
-        .status(400)
-        .json({ error: "El DNI ya se encuentra registrado en el sistema." });
-    }
-    res.status(500).json({ error: "Error al crear el jugador" });
+    console.error("ERROR CRÍTICO:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -188,6 +164,8 @@ router.put("/:id", cpUpload, async (req, res) => {
       data: {
         dni: dniLimpio,
         nombreCompleto: data.nombreCompleto,
+        categoria: data.categoria,
+        categoriaEspecial: data.categoriaEspecial,
         genero: data.genero,
         nacionalidad: data.nacionalidad,
         email: data.email,
