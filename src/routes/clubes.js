@@ -177,33 +177,26 @@ router.delete("/:id", async (req, res) => {
 });
 // backend/routes/clubes.js
 
+// backend/src/routes/clubes.js (o jugadores.js según tu estructura)
 router.get("/:id/jugadores", async (req, res) => {
-  const { id } = req.params;
   try {
     const jugadores = await prisma.jugador.findMany({
       where: {
-        clubId: id,
-        // Quitamos el filtro de estado temporalmente para asegurar que carguen
+        clubId: req.params.id,
+        estado: "Aprobado", // O quita esto si quieres ver a todos
       },
+      // ESTO ES LO QUE FALTA:
       select: {
         id: true,
         nombreCompleto: true,
         dni: true,
-        categoria: true,
-        equipo: true,
-      },
-      orderBy: {
-        nombreCompleto: "asc",
+        genero: true, // <--- IMPORTANTE
+        categoria: true, // <--- IMPORTANTE
       },
     });
-
-    console.log(
-      `Jugadores encontrados para el club ${id}: ${jugadores.length}`,
-    );
     res.json(jugadores);
   } catch (error) {
-    console.error("Error al obtener jugadores del club:", error);
-    res.status(500).json({ error: "Error interno del servidor" });
+    res.status(500).json({ error: error.message });
   }
 });
 // backend/routes/clubes.js

@@ -104,7 +104,42 @@ router.post("/", cpUpload, async (req, res) => {
     res.status(201).json(nuevoJugador);
   } catch (error) {
     console.error("ERROR CRÍTICO:", error);
-    res.status(500).json({ error: error.message });
+
+    // Borrar archivos subidos si falla la operación para no llenar el disco de basura
+    if (req.files) {
+      Object.values(req.files)
+        .flat()
+        .forEach((file) => {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        });
+    }
+
+    // Manejo de DNI Duplicado con información del club
+    if (error.code === "P2002") {
+      const dniDuplicado = req.body.dni.toString().replace(/\D/g, "");
+
+      // Buscamos al jugador existente para saber su club
+      const jugadorExistente = await prisma.jugador.findUnique({
+        where: { dni: dniDuplicado },
+        include: { club: { select: { nombre: true } } },
+      });
+
+      if (jugadorExistente) {
+        return res.status(400).json({
+          error: `El DNI ${dniDuplicado} ya está registrado en la Federación bajo el club: ${jugadorExistente.club.nombre}.`,
+          detalles:
+            "Un jugador no puede estar fichado en dos clubes simultáneamente.",
+        });
+      }
+
+      return res
+        .status(400)
+        .json({ error: "El DNI ya se encuentra registrado." });
+    }
+
+    res
+      .status(500)
+      .json({ error: "Error interno al crear el jugador: " + error.message });
   }
 });
 
