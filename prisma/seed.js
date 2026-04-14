@@ -34,7 +34,7 @@ async function main() {
       nombre: "Administrador FJH",
       username: "admin",
       role: "admin",
-      pass: "HorizonteHandball2026", // Cambiá esta contraseña por una segura
+      pass: "HorizonteHandball2026", 
     },
     {
       nombre: "Representante Fed.",
