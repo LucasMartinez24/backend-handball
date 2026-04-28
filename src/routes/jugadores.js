@@ -26,20 +26,80 @@ const cpUpload = upload.fields([
   { name: "fichaJugador", maxCount: 1 },
 ]);
 
+// --- FUNCIÓN INTERNA PARA GESTIONAR EL CLUB DESTINO (ESPEJOS B, C) ---
+async function obtenerIdClubDestino(clubPadreId, letraEquipo) {
+  if (!letraEquipo || letraEquipo.toUpperCase() === "A") return clubPadreId;
+
+  const letra = letraEquipo.toUpperCase();
+  const clubPadre = await prisma.club.findUnique({
+    where: { id: clubPadreId },
+  });
+
+  if (!clubPadre) return clubPadreId;
+
+  const nombreBase = clubPadre.nombre.replace(/ [BC]$/, "");
+  const siglasBase = clubPadre.siglas.replace(/-[BC]$/, "");
+
+  const nombreEspejo = `${nombreBase} ${letra}`;
+  const siglasEspejo = `${siglasBase}-${letra}`;
+
+  let clubEspejo = await prisma.club.findFirst({
+    where: { nombre: nombreEspejo },
+  });
+
+  if (!clubEspejo) {
+    clubEspejo = await prisma.club.create({
+      data: {
+        nombre: nombreEspejo,
+        siglas: siglasEspejo,
+        logoUrl: clubPadre.logoUrl,
+        username: `${clubPadre.username}_${letra.toLowerCase()}`,
+        password: clubPadre.password, // Hereda acceso para el mismo delegado
+        esInvitado: false,
+      },
+    });
+  }
+  return clubEspejo.id;
+}
+
 // --- RUTAS ---
 
-// A. OBTENER JUGADORES (Con filtro por club)
+// A. OBTENER JUGADORES (Agrupados por Club Raíz para el Delegado)
+// src/routes/jugadores.js
+// src/routes/jugadores.js
+
 router.get("/", async (req, res) => {
   const { clubId } = req.query;
   try {
+    let whereClause = {};
+
+    if (clubId) {
+      // 1. Buscamos el club que inició sesión
+      const clubRaiz = await prisma.club.findUnique({ where: { id: clubId } });
+
+      if (clubRaiz) {
+        // 2. Obtenemos el nombre base (ej: "Rivadavia") quitando el " B" o " C"
+        const nombreBase = clubRaiz.nombre.replace(/ [BC]$/, "");
+
+        // 3. Filtramos para que traiga jugadores de "Rivadavia", "Rivadavia B" y "Rivadavia C"
+        whereClause = {
+          club: {
+            nombre: {
+              startsWith: nombreBase,
+            },
+          },
+        };
+      }
+    }
+
     const jugadores = await prisma.jugador.findMany({
-      where: clubId ? { clubId } : {},
-      include: { club: true },
+      where: whereClause,
+      include: { club: true }, // Esto es vital para que el frontend sepa de qué club es cada uno
       orderBy: { createdAt: "desc" },
     });
     res.json(jugadores);
   } catch (error) {
-    res.status(500).json({ error: "Error interno del servidor" });
+    res.status(500).json({ error: "Error al listar jugadores" });
   }
 });
 
@@ -58,29 +118,28 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// C. CREAR JUGADOR
-// routes/jugadores.js
-
-// E:\Federacion de Handball\backend-handball\src\routes\jugadores.js
-
+// C. CREAR JUGADOR (POST)
 router.post("/", cpUpload, async (req, res) => {
   try {
     const data = req.body;
 
-    // Construimos el objeto de datos asegurando que solo enviamos lo que Prisma conoce
+    // MUDANZA AUTOMÁTICA SEGÚN EQUIPO
+    const finalClubId = await obtenerIdClubDestino(data.clubId, data.equipo);
+
     const insertData = {
-      dni: data.dni.toString(),
+      dni: data.dni.toString().replace(/\D/g, ""),
       nombreCompleto: data.nombreCompleto,
       fechaNacimiento: new Date(data.fechaNacimiento),
       categoria: data.categoria || "Primera",
       genero: data.genero,
-      nacionalidad: data.nacionalidad,
+      nacionalidad: data.nacionalidad || "Argentina",
       email: data.email || null,
       whatsapp: data.whatsapp || null,
       tutorPhone: data.tutorPhone || null,
       equipo: data.equipo || "A",
       manoHabil: data.manoHabil || "Derecha",
-      clubId: data.clubId,
+      clubId: finalClubId,
+      estado: "Pendiente",
       fichaMedicaUrl: req.files["fichaMedica"]
         ? `/uploads/documentos/fichas/${req.files["fichaMedica"][0].filename}`
         : null,
@@ -92,20 +151,14 @@ router.post("/", cpUpload, async (req, res) => {
         : null,
     };
 
-    // SOLO agregamos categoriaEspecial si realmente existe en el modelo y viene en el body
-    if (data.categoriaEspecial !== undefined) {
+    if (data.categoriaEspecial)
       insertData.categoriaEspecial = data.categoriaEspecial;
-    }
+    if (data.peso) insertData.peso = parseFloat(data.peso);
+    if (data.altura) insertData.altura = parseInt(data.altura);
 
-    const nuevoJugador = await prisma.jugador.create({
-      data: insertData,
-    });
-
+    const nuevoJugador = await prisma.jugador.create({ data: insertData });
     res.status(201).json(nuevoJugador);
   } catch (error) {
-    console.error("ERROR CRÍTICO:", error);
-
-    // Borrar archivos subidos si falla la operación para no llenar el disco de basura
     if (req.files) {
       Object.values(req.files)
         .flat()
@@ -114,71 +167,40 @@ router.post("/", cpUpload, async (req, res) => {
         });
     }
 
-    // Manejo de DNI Duplicado con información del club
     if (error.code === "P2002") {
       const dniDuplicado = req.body.dni.toString().replace(/\D/g, "");
-
-      // Buscamos al jugador existente para saber su club
-      const jugadorExistente = await prisma.jugador.findUnique({
+      const existente = await prisma.jugador.findUnique({
         where: { dni: dniDuplicado },
         include: { club: { select: { nombre: true } } },
       });
-
-      if (jugadorExistente) {
+      if (existente) {
         return res.status(400).json({
-          error: `El DNI ${dniDuplicado} ya está registrado en la Federación bajo el club: ${jugadorExistente.club.nombre}.`,
-          detalles:
-            "Un jugador no puede estar fichado en dos clubes simultáneamente.",
+          error: `El DNI ${dniDuplicado} ya está registrado en la Federación bajo el club: ${existente.club.nombre}.`,
         });
       }
-
-      return res
-        .status(400)
-        .json({ error: "El DNI ya se encuentra registrado." });
     }
-
-    res
-      .status(500)
-      .json({ error: "Error interno al crear el jugador: " + error.message });
+    res.status(500).json({ error: "Error al crear: " + error.message });
   }
 });
 
-// D. ACTUALIZACIÓN RÁPIDA DE ESTADO (Audit de Plantilla)
-// Esta ruta es la que usa el componente ClubList para aprobar/rechazar
-router.patch("/:id/estado", async (req, res) => {
-  const { id } = req.params;
-  const { estado } = req.body;
-  try {
-    const actualizado = await prisma.jugador.update({
-      where: { id },
-      data: { estado },
-    });
-    res.json(actualizado);
-  } catch (error) {
-    res.status(400).json({ error: "No se pudo actualizar el estado" });
-  }
-});
-
-// E. ACTUALIZAR JUGADOR COMPLETO (Edición de perfil)
+// D. EDITAR JUGADOR (PUT)
 router.put("/:id", cpUpload, async (req, res) => {
-  const { id } = req.params;
-  const data = req.body;
   try {
-    const jugadorActual = await prisma.jugador.findUnique({ where: { id } });
+    const { id } = req.params;
+    const data = req.body;
+    const jugadorActual = await prisma.jugador.findUnique({
+      where: { id },
+      include: { club: true },
+    });
     if (!jugadorActual) return res.status(404).json({ error: "No encontrado" });
 
-    const dniLimpio = data.dni
-      ? data.dni.toString().replace(/\D/g, "")
-      : jugadorActual.dni;
-    const pesoLimpio = data.peso
-      ? data.peso.toString().replace(/\D/g, "")
-      : undefined;
-    const alturaLimpia = data.altura
-      ? data.altura.toString().replace(/\D/g, "")
-      : undefined;
+    // GESTIÓN DE MUDANZA DE CLUB
+    const finalClubId = await obtenerIdClubDestino(
+      data.clubId || jugadorActual.clubId,
+      data.equipo,
+    );
 
     let { fichaMedicaUrl, autorizacionUrl, fichaJugadorUrl } = jugadorActual;
-
     if (req.files) {
       if (req.files["fichaMedica"]) {
         borrarArchivoFisico(jugadorActual.fichaMedicaUrl);
@@ -197,24 +219,18 @@ router.put("/:id", cpUpload, async (req, res) => {
     const actualizado = await prisma.jugador.update({
       where: { id },
       data: {
-        dni: dniLimpio,
+        dni: data.dni ? data.dni.toString().replace(/\D/g, "") : undefined,
         nombreCompleto: data.nombreCompleto,
         categoria: data.categoria,
         categoriaEspecial: data.categoriaEspecial,
         genero: data.genero,
-        nacionalidad: data.nacionalidad,
-        email: data.email,
-        whatsapp: data.whatsapp,
-        tutorPhone: data.tutorPhone,
-        manoHabil: data.manoHabil,
-        equipo: data.equipo,
-        clubId: data.clubId,
-        estado: data.estado !== undefined ? data.estado : jugadorActual.estado,
+        equipo: data.equipo || "A",
+        clubId: finalClubId, // AQUÍ SE REALIZA LA MUDANZA SI CAMBIÓ LA LETRA
         fechaNacimiento: data.fechaNacimiento
           ? new Date(data.fechaNacimiento)
           : undefined,
-        peso: pesoLimpio ? parseFloat(pesoLimpio) : undefined,
-        altura: alturaLimpia ? parseInt(alturaLimpia) : undefined,
+        peso: data.peso ? parseFloat(data.peso) : undefined,
+        altura: data.altura ? parseInt(data.altura) : undefined,
         fichaMedicaUrl,
         autorizacionUrl,
         fichaJugadorUrl,
@@ -222,8 +238,22 @@ router.put("/:id", cpUpload, async (req, res) => {
     });
     res.json(actualizado);
   } catch (error) {
-    console.error(error);
-    res.status(400).json({ error: "Error al actualizar el jugador" });
+    res.status(400).json({ error: "Error al actualizar" });
+  }
+});
+
+// E. ACTUALIZACIÓN RÁPIDA DE ESTADO (PATCH)
+router.patch("/:id/estado", async (req, res) => {
+  const { id } = req.params;
+  const { estado } = req.body;
+  try {
+    const actualizado = await prisma.jugador.update({
+      where: { id },
+      data: { estado },
+    });
+    res.json(actualizado); // Es vital que devuelvas el objeto para el 'next' del frontend
+  } catch (error) {
+    res.status(400).json({ error: "Error al actualizar" });
   }
 });
 

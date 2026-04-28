@@ -126,9 +126,9 @@ router.patch("/:id/resultado", async (req, res) => {
 
       // 3. Actualizar Posiciones (UPSERT DINÁMICO)
       const ptsL =
-        golesLocal > golesVisitante ? 2 : golesLocal === golesVisitante ? 1 : 0;
+        golesLocal > golesVisitante ? 3 : golesLocal === golesVisitante ? 1 : 0;
       const ptsV =
-        golesVisitante > golesLocal ? 2 : golesLocal === golesVisitante ? 1 : 0;
+        golesVisitante > golesLocal ? 3 : golesLocal === golesVisitante ? 1 : 0;
 
       const upsertPosicion = async (isLocal) => {
         const clubId = isLocal ? partido.localId : partido.visitanteId;

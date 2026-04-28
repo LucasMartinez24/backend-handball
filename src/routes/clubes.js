@@ -10,8 +10,9 @@ router.get("/", async (req, res) => {
   try {
     const clubes = await prisma.club.findMany({
       include: {
-        jugadores: true,
+        jugadores: true, // Esto permitirá que el contador de jugadores funcione
       },
+      orderBy: { nombre: "asc" },
     });
     res.json(clubes);
   } catch (error) {
@@ -190,8 +191,9 @@ router.get("/:id/jugadores", async (req, res) => {
         id: true,
         nombreCompleto: true,
         dni: true,
-        genero: true, // <--- IMPORTANTE
-        categoria: true, // <--- IMPORTANTE
+        genero: true, // <--- INDISPENSABLE
+        categoria: true, // <--- INDISPENSABLE
+        categoriaEspecial: true, // <--- INDISPENSABLE
       },
     });
     res.json(jugadores);
