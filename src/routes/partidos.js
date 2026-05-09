@@ -191,7 +191,8 @@ router.get("/torneo/:torneoId", async (req, res) => {
  * 5. SINCRONIZAR FIXTURE (POST) - VERSIÓN ULTRA-ROBUSTA
  */
 /**
- * 5. SINCRONIZAR FIXTURE (POST) - SOLUCIÓN DE ZONA HORARIA
+/**
+ * 5. SINCRONIZAR FIXTURE (POST) - SOLUCIÓN DEFINITIVA ZONA HORARIA
  */
 router.post("/torneo/:torneoId/fixture", async (req, res) => {
   const { torneoId } = req.params;
@@ -207,13 +208,18 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
         let fechaFinal = null;
 
         if (p.fecha && p.hora) {
-          // CONSTRUCCIÓN MANUAL PARA EVITAR GMT/UTC
-          // Creamos el string: "2026-05-10T14:00:00"
-          // Al NO poner una "Z" al final, JS lo trata como hora local del servidor
-          const fechaHoraString = `${p.fecha}T${p.hora}:00`;
-          fechaFinal = new Date(fechaHoraString);
-        } else if (p.fecha) {
-          fechaFinal = new Date(`${p.fecha}T00:00:00`);
+          // CONSTRUCCIÓN: "2026-05-10T14:00:00"
+          // Al mandarlo como objeto Date, JS lo pasa a UTC.
+          // Para evitarlo, forzamos la conversión a ISO y quitamos la 'Z'
+          // o usamos el formato que Prisma entiende como local.
+          const localString = `${p.fecha}T${p.hora}:00.000Z`;
+
+          // Truco: Le sumamos manualmente las 3 horas para que al restarlas quede igual
+          // O mejor aún, usamos un string ISO directo si tu base de datos lo permite:
+          const dateObj = new Date(`${p.fecha}T${p.hora}:00`);
+          // Compensación manual de 3 horas (Argentina es UTC-3)
+          dateObj.setHours(dateObj.getHours() + 3);
+          fechaFinal = dateObj;
         }
 
         const data = {
@@ -221,7 +227,7 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
           jornada: parseInt(jornada.numero),
           localId: p.localId,
           visitanteId: p.visitanteId,
-          fecha: fechaFinal, // Prisma lo guardará ahora respetando el valor local
+          fecha: fechaFinal,
           lugar: p.lugar || "Sede a definir",
           estado: p.estado || "Programado",
         };
@@ -237,7 +243,7 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
     }
 
     await prisma.$transaction(operaciones);
-    res.json({ message: "Fixture guardado con hora local" });
+    res.json({ message: "Fixture guardado correctamente" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
