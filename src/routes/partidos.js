@@ -191,34 +191,50 @@ router.get("/torneo/:torneoId", async (req, res) => {
  */
 router.post("/torneo/:torneoId/fixture", async (req, res) => {
   const { torneoId } = req.params;
-  const { jornadas } = req.body;
+  const jornadas = req.body; // Recibimos el array directamente
+
   try {
     const operaciones = [];
+
+    // Validamos que sea un array para evitar errores de .map o for...of
+    if (!Array.isArray(jornadas)) {
+      throw new Error("El formato del fixture debe ser un Array");
+    }
+
     for (const jornada of jornadas) {
       for (const p of jornada.partidos) {
+        let fechaFinal = null;
+        if (p.fecha) {
+          const horaLimpia = p.hora || "00:00";
+          fechaFinal = new Date(`${p.fecha}T${horaLimpia}:00`);
+          if (isNaN(fechaFinal.getTime())) {
+            fechaFinal = new Date(p.fecha);
+          }
+        }
+
         const data = {
           torneoId,
           jornada: parseInt(jornada.numero),
           localId: p.localId,
           visitanteId: p.visitanteId,
-          nombreInvitadoLocal: p.nombreInvitadoLocal,
-          nombreInvitadoVisitante: p.nombreInvitadoVisitante,
-          fecha: p.fecha
-            ? new Date(`${p.fecha}T${p.hora || "00:00"}:00`)
-            : null,
-          lugar: p.lugar,
+          fecha: fechaFinal,
+          lugar: p.lugar || "Sede a definir",
           estado: p.estado || "Programado",
         };
-        if (p.id)
+
+        if (p.id) {
           operaciones.push(
             prisma.partido.update({ where: { id: p.id }, data }),
           );
-        else operaciones.push(prisma.partido.create({ data }));
+        } else {
+          operaciones.push(prisma.partido.create({ data }));
+        }
       }
     }
     await prisma.$transaction(operaciones);
-    res.json({ message: "Sincronizado" });
+    res.json({ message: "Fixture sincronizado con éxito" });
   } catch (error) {
+    console.error("Error en sincronización:", error);
     res.status(500).json({ error: error.message });
   }
 });
