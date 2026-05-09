@@ -45,7 +45,7 @@ router.get("/torneo/:torneoId/jornada/:numero", async (req, res) => {
 });
 
 /**
- * 3. OFICIALIZAR RESULTADOS (MATCH REPORT)
+ * 3. OFICIALIZAR RESULTADOS (ACTA CERRADA)
  */
 router.patch("/:id/resultado", async (req, res) => {
   const {
@@ -66,7 +66,7 @@ router.patch("/:id/resultado", async (req, res) => {
       const partido = await tx.partido.findUnique({ where: { id: partidoId } });
       if (!partido) throw new Error("Partido no encontrado");
 
-      // 1. Actualizar Partido
+      // 1. Actualizar Datos Generales del Partido
       await tx.partido.update({
         where: { id: partidoId },
         data: {
@@ -82,49 +82,47 @@ router.patch("/:id/resultado", async (req, res) => {
         },
       });
 
-      // 2. Procesar Eventos (Estadísticas e Invitados)
+      // 2. Procesar Eventos (Estadísticas, Números e Invitados)
       if (detallesJugadores && detallesJugadores.length > 0) {
         await tx.eventoPartido.deleteMany({ where: { partidoId } });
         const eventosData = [];
 
         for (const j of detallesJugadores) {
-          const dorsal = parseInt(j.numeroInvitado || j.numero);
-          const equipoIdData = j.equipoId || null;
+          const dorsal = parseInt(j.numero) || 0;
+          const equipoIdData = j.equipoId;
 
           const baseEvento = {
             partidoId,
             equipoId: equipoIdData,
             jugadorId: j.jugadorId || null,
-            nombreInvitado: j.jugadorId ? null : j.nombreCompleto || j.nombre,
+            nombreInvitado: j.jugadorId ? null : j.nombreCompleto,
             numeroInvitado: dorsal,
           };
 
-          // --- NOVEDAD: REGISTRO DE PRESENCIA ---
-          // Esto garantiza que el jugador se guarde aunque no tenga goles/tarjetas
+          // REGISTRO DE PRESENCIA: Clave para que el número se guarde aunque no haga goles
           eventosData.push({ ...baseEvento, tipo: "PRESENCIA" });
 
           // Goles
-          for (let i = 0; i < (j.goles || 0); i++)
+          for (let i = 0; i < (j.goles || 0); i++) {
             eventosData.push({ ...baseEvento, tipo: "GOL" });
-
+          }
           // Amarillas
-          if (j.am > 0 || j.amarillas > 0)
-            eventosData.push({ ...baseEvento, tipo: "AMARILLA" });
-
+          if (j.am > 0) eventosData.push({ ...baseEvento, tipo: "AMARILLA" });
           // Exclusiones
-          for (let i = 0; i < (j.excl || j.exclusiones || 0); i++)
+          for (let i = 0; i < (j.excl || 0); i++) {
             eventosData.push({ ...baseEvento, tipo: "DOS_MINUTOS" });
-
-          // Rojas y Azules
+          }
+          // Tarjetas Especiales
           if (j.roja) eventosData.push({ ...baseEvento, tipo: "ROJA" });
           if (j.azul) eventosData.push({ ...baseEvento, tipo: "AZUL" });
         }
 
-        if (eventosData.length > 0)
+        if (eventosData.length > 0) {
           await tx.eventoPartido.createMany({ data: eventosData });
+        }
       }
 
-      // 3. Actualizar Posiciones (UPSERT DINÁMICO)
+      // 3. Actualizar Tabla de Posiciones
       const ptsL =
         golesLocal > golesVisitante ? 3 : golesLocal === golesVisitante ? 1 : 0;
       const ptsV =
@@ -136,26 +134,8 @@ router.patch("/:id/resultado", async (req, res) => {
         const gC = isLocal ? golesVisitante : golesLocal;
         const pts = isLocal ? ptsL : ptsV;
 
-        const where = {
-          torneoId_clubId: {
-            torneoId: partido.torneoId,
-            clubId: clubId,
-          },
-        };
-
-        const dataBase = {
-          pj: 1,
-          puntos: pts,
-          gf: parseInt(gF),
-          gc: parseInt(gC),
-          dg: gF - gC,
-          pg: gF > gC ? 1 : 0,
-          pe: gF === gC ? 1 : 0,
-          pp: gF < gC ? 1 : 0,
-        };
-
         await tx.posicion.upsert({
-          where,
+          where: { torneoId_clubId: { torneoId: partido.torneoId, clubId } },
           update: {
             pj: { increment: 1 },
             puntos: { increment: pts },
@@ -167,19 +147,25 @@ router.patch("/:id/resultado", async (req, res) => {
             pp: { increment: gF < gC ? 1 : 0 },
           },
           create: {
-            ...dataBase,
             torneoId: partido.torneoId,
-            clubId: clubId,
+            clubId,
+            pj: 1,
+            puntos: pts,
+            gf: parseInt(gF),
+            gc: parseInt(gC),
+            dg: gF - gC,
+            pg: gF > gC ? 1 : 0,
+            pe: gF === gC ? 1 : 0,
+            pp: gF < gC ? 1 : 0,
           },
         });
       };
 
-      await upsertPosicion(true); // Local
-      await upsertPosicion(false); // Visitante
+      await upsertPosicion(true);
+      await upsertPosicion(false);
     });
     res.json({ success: true });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: error.message });
   }
 });
