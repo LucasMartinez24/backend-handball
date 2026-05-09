@@ -190,36 +190,30 @@ router.get("/torneo/:torneoId", async (req, res) => {
 
  * 5. SINCRONIZAR FIXTURE (POST) - VERSIÓN ULTRA-ROBUSTA
  */
+/**
+ * 5. SINCRONIZAR FIXTURE (POST) - SOLUCIÓN DE ZONA HORARIA
+ */
 router.post("/torneo/:torneoId/fixture", async (req, res) => {
   const { torneoId } = req.params;
-
-  // Forzamos a obtener el array sin importar si viene directo o en una propiedad
   const jornadas = Array.isArray(req.body) ? req.body : req.body.jornadas;
 
-  if (!jornadas || !Array.isArray(jornadas)) {
-    return res
-      .status(400)
-      .json({ error: "El formato del fixture debe ser un Array de jornadas" });
-  }
+  if (!jornadas) return res.status(400).json({ error: "Formato inválido" });
 
   try {
     const operaciones = [];
 
     for (const jornada of jornadas) {
-      if (!jornada.partidos || !Array.isArray(jornada.partidos)) continue;
-
       for (const p of jornada.partidos) {
         let fechaFinal = null;
 
-        if (p.fecha) {
-          // Normalizamos la hora para evitar "Invalid Date"
-          const horaLimpia = p.hora && p.hora.trim() !== "" ? p.hora : "00:00";
-          // p.fecha suele venir como "YYYY-MM-DD" desde el input date
-          fechaFinal = new Date(`${p.fecha}T${horaLimpia}:00`);
-
-          if (isNaN(fechaFinal.getTime())) {
-            fechaFinal = new Date(p.fecha);
-          }
+        if (p.fecha && p.hora) {
+          // CONSTRUCCIÓN MANUAL PARA EVITAR GMT/UTC
+          // Creamos el string: "2026-05-10T14:00:00"
+          // Al NO poner una "Z" al final, JS lo trata como hora local del servidor
+          const fechaHoraString = `${p.fecha}T${p.hora}:00`;
+          fechaFinal = new Date(fechaHoraString);
+        } else if (p.fecha) {
+          fechaFinal = new Date(`${p.fecha}T00:00:00`);
         }
 
         const data = {
@@ -227,7 +221,7 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
           jornada: parseInt(jornada.numero),
           localId: p.localId,
           visitanteId: p.visitanteId,
-          fecha: fechaFinal,
+          fecha: fechaFinal, // Prisma lo guardará ahora respetando el valor local
           lugar: p.lugar || "Sede a definir",
           estado: p.estado || "Programado",
         };
@@ -242,19 +236,11 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
       }
     }
 
-    if (operaciones.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "No hay partidos para sincronizar" });
-    }
-
     await prisma.$transaction(operaciones);
-    res.json({ message: "Fixture y horarios guardados correctamente" });
+    res.json({ message: "Fixture guardado con hora local" });
   } catch (error) {
-    console.error("ERROR CRÍTICO EN FIXTURE:", error);
-    res
-      .status(500)
-      .json({ error: "Error interno del servidor al procesar el fixture" });
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
 });
 
