@@ -187,26 +187,36 @@ router.get("/torneo/:torneoId", async (req, res) => {
 });
 
 /**
- * 5. SINCRONIZAR FIXTURE
+
+ * 5. SINCRONIZAR FIXTURE (POST) - VERSIÓN ULTRA-ROBUSTA
  */
 router.post("/torneo/:torneoId/fixture", async (req, res) => {
   const { torneoId } = req.params;
-  const jornadas = req.body; // Recibimos el array directamente
+
+  // Forzamos a obtener el array sin importar si viene directo o en una propiedad
+  const jornadas = Array.isArray(req.body) ? req.body : req.body.jornadas;
+
+  if (!jornadas || !Array.isArray(jornadas)) {
+    return res
+      .status(400)
+      .json({ error: "El formato del fixture debe ser un Array de jornadas" });
+  }
 
   try {
     const operaciones = [];
 
-    // Validamos que sea un array para evitar errores de .map o for...of
-    if (!Array.isArray(jornadas)) {
-      throw new Error("El formato del fixture debe ser un Array");
-    }
-
     for (const jornada of jornadas) {
+      if (!jornada.partidos || !Array.isArray(jornada.partidos)) continue;
+
       for (const p of jornada.partidos) {
         let fechaFinal = null;
+
         if (p.fecha) {
-          const horaLimpia = p.hora || "00:00";
+          // Normalizamos la hora para evitar "Invalid Date"
+          const horaLimpia = p.hora && p.hora.trim() !== "" ? p.hora : "00:00";
+          // p.fecha suele venir como "YYYY-MM-DD" desde el input date
           fechaFinal = new Date(`${p.fecha}T${horaLimpia}:00`);
+
           if (isNaN(fechaFinal.getTime())) {
             fechaFinal = new Date(p.fecha);
           }
@@ -231,11 +241,20 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
         }
       }
     }
+
+    if (operaciones.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "No hay partidos para sincronizar" });
+    }
+
     await prisma.$transaction(operaciones);
-    res.json({ message: "Fixture sincronizado con éxito" });
+    res.json({ message: "Fixture y horarios guardados correctamente" });
   } catch (error) {
-    console.error("Error en sincronización:", error);
-    res.status(500).json({ error: error.message });
+    console.error("ERROR CRÍTICO EN FIXTURE:", error);
+    res
+      .status(500)
+      .json({ error: "Error interno del servidor al procesar el fixture" });
   }
 });
 
