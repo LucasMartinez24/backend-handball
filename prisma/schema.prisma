@@ -191,3 +191,13 @@ model Staff {
   role      String   
   createdAt DateTime @default(now())
 }
+model Galeria {
+  id        String   @id @default(uuid())
+  url       String
+  titulo    String?
+  categoria String?  @default("General")
+  createdAt DateTime @default(now())
+
+  @@index([categoria]) // Acelera el filtrado por categoría
+  @@index([createdAt]) // Acelera el ordenamiento por fecha
+}

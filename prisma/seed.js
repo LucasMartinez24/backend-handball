@@ -31,28 +31,10 @@ async function main() {
 
   const staffUsers = [
     {
-      nombre: "Administrador FJH",
-      username: "admin",
-      role: "admin",
-      pass: "HorizonteHandball2026", 
-    },
-    {
-      nombre: "Representante Fed.",
-      username: "JugadoresFede2026",
-      role: "REP_FEDERACION",
-      pass: "JugadoresFederacion_2026",
-    },
-    {
-      nombre: "Oficial de Mesa",
-      username: "PlanillaFederacion2026",
-      role: "OFICIAL_MESA",
-      pass: "Planilla_fede2026",
-    },
-    {
-      nombre: "Jefe de Árbitros",
-      username: "Arbitros2026",
-      role: "JEFE_ARBITROS",
-      pass: "Federacion_Arbitros2026",
+      nombre: "Comunity Manager",
+      username: "ComunityManagerFJH",
+      role: "CM",
+      pass: "CM2026FHJ",
     },
   ];
 

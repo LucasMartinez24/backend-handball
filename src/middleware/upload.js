@@ -15,6 +15,9 @@ const storage = multer.diskStorage({
       case "logo":
         subFolder = "logos";
         break;
+      case "fotos": // <--- Nuevo caso para la Galería
+        subFolder = "galeria";
+        break;
       case "fichaMedica":
         subFolder = "documentos/fichas";
         break;
