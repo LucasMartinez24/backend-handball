@@ -6,7 +6,10 @@ require("dotenv").config();
 const app = express();
 app.use(
   cors({
-    origin: "https://federaciondehandballjujuy.cloud",
+    origin: [
+      "https://federaciondehandballjujuy.cloud",
+      "http://localhost:4200",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
@@ -17,25 +20,7 @@ app.use(
     credentials: true,
   }),
 );
-app.use((req, res, next) => {
-  const originalJson = res.json;
-  res.json = function (data) {
-    let jsonString = JSON.stringify(data);
 
-    // Reemplaza cualquier ruta relativa de uploads por la URL absoluta de la API
-    if (jsonString && jsonString.includes("/uploads/")) {
-      const apiUrL = "https://api.federaciondehandballjujuy.cloud";
-      // Evita duplicar si ya viene con la URL
-      jsonString = jsonString.replace(
-        /(?!"https:\/\/api.federaciondehandballjujuy.cloud")\/uploads\//g,
-        `${apiUrL}/uploads/`,
-      );
-    }
-
-    return originalJson.call(this, JSON.parse(jsonString));
-  };
-  next();
-});
 app.use(express.json());
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ limit: "15mb", extended: true }));
