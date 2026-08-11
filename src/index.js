@@ -9,8 +9,11 @@ app.use(
     origin: [
       "https://federaciondehandballjujuy.cloud",
       "http://localhost:4200",
+      "http://localhost:5173",
+      "http://127.0.0.1:4200",
+      "http://127.0.0.1:5173",
     ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -18,6 +21,7 @@ app.use(
       "Accept",
     ],
     credentials: true,
+    optionsSuccessStatus: 204,
   }),
 );
 

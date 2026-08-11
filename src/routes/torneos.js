@@ -103,6 +103,34 @@ router.delete("/:id", async (req, res) => {
     });
   }
 });
+// PUT /api/torneos/:id - Actualizar torneo (estado, etc.)
+router.put("/:id", async (req, res) => {
+  const { id } = req.params;
+  const { nombre, categoria, rama, estado, fechaInicio, progreso, formato, colorClase, idaVuelta } = req.body;
+  try {
+    // Construir solo los campos que vienen en el body
+    const dataToUpdate = {};
+    if (nombre !== undefined) dataToUpdate.nombre = nombre;
+    if (categoria !== undefined) dataToUpdate.categoria = categoria;
+    if (rama !== undefined) dataToUpdate.rama = rama;
+    if (estado !== undefined) dataToUpdate.estado = estado;
+    if (fechaInicio !== undefined) dataToUpdate.fechaInicio = new Date(fechaInicio);
+    if (progreso !== undefined) dataToUpdate.progreso = Number(progreso);
+    if (formato !== undefined) dataToUpdate.formato = formato;
+    if (colorClase !== undefined) dataToUpdate.colorClase = colorClase;
+    if (idaVuelta !== undefined) dataToUpdate.idaVuelta = Boolean(idaVuelta);
+
+    const torneoActualizado = await prisma.torneo.update({
+      where: { id },
+      data: dataToUpdate,
+    });
+    res.json(torneoActualizado);
+  } catch (error) {
+    console.error("Error al actualizar torneo:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/torneos - Crear torneo
 router.post("/", async (req, res) => {
   const {

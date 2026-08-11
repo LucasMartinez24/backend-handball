@@ -61,6 +61,11 @@ router.patch("/:id/resultado", async (req, res) => {
   } = req.body;
   const partidoId = req.params.id;
 
+  const toInt = (value, fallback = 0) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
   try {
     await prisma.$transaction(async (tx) => {
       const partido = await tx.partido.findUnique({ where: { id: partidoId } });
@@ -70,10 +75,10 @@ router.patch("/:id/resultado", async (req, res) => {
       await tx.partido.update({
         where: { id: partidoId },
         data: {
-          golesLocal: parseInt(golesLocal),
-          golesVisitante: parseInt(golesVisitante),
-          golesLocalHT: parseInt(golesLocalHT),
-          golesVisitanteHT: parseInt(golesVisitanteHT),
+          golesLocal: toInt(golesLocal),
+          golesVisitante: toInt(golesVisitante),
+          golesLocalHT: toInt(golesLocalHT),
+          golesVisitanteHT: toInt(golesVisitanteHT),
           arbitro1,
           arbitro2,
           cronometrista,
@@ -139,8 +144,8 @@ router.patch("/:id/resultado", async (req, res) => {
           update: {
             pj: { increment: 1 },
             puntos: { increment: pts },
-            gf: { increment: parseInt(gF) },
-            gc: { increment: parseInt(gC) },
+            gf: { increment: toInt(gF) },
+            gc: { increment: toInt(gC) },
             dg: { increment: gF - gC },
             pg: { increment: gF > gC ? 1 : 0 },
             pe: { increment: gF === gC ? 1 : 0 },
@@ -151,8 +156,8 @@ router.patch("/:id/resultado", async (req, res) => {
             clubId,
             pj: 1,
             puntos: pts,
-            gf: parseInt(gF),
-            gc: parseInt(gC),
+            gf: toInt(gF),
+            gc: toInt(gC),
             dg: gF - gC,
             pg: gF > gC ? 1 : 0,
             pe: gF === gC ? 1 : 0,
