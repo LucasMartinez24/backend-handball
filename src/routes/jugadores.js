@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 const upload = require("../middleware/upload");
+const verificarToken = require("../middleware/auth");
 const fs = require("fs");
 const path = require("path");
 
@@ -25,6 +26,23 @@ const cpUpload = upload.fields([
   { name: "autorizacionPadres", maxCount: 1 },
   { name: "fichaJugador", maxCount: 1 },
 ]);
+
+const TIPOS_MOVIMIENTO = {
+  PRESTAMO: "PRESTAMO",
+  PASE: "PASE",
+};
+
+const ESTADOS_MOVIMIENTO = {
+  ACTIVO: "Activo",
+  FINALIZADO: "Finalizado",
+  CONFIRMADO: "Confirmado",
+};
+
+const sumarMeses = (fecha, meses) => {
+  const resultado = new Date(fecha);
+  resultado.setMonth(resultado.getMonth() + meses);
+  return resultado;
+};
 
 // --- FUNCIÓN INTERNA PARA GESTIONAR EL CLUB DESTINO (ESPEJOS B, C) ---
 async function obtenerIdClubDestino(clubPadreId, letraEquipo) {
@@ -103,18 +121,262 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/:id/movimientos", async (req, res) => {
+  try {
+    const movimientos = await prisma.movimientoJugador.findMany({
+      where: { jugadorId: req.params.id },
+      include: {
+        clubOrigen: { select: { id: true, nombre: true, siglas: true } },
+        clubDestino: { select: { id: true, nombre: true, siglas: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json(movimientos);
+  } catch (error) {
+    res.status(500).json({ error: "Error al obtener movimientos" });
+  }
+});
+
 // B. OBTENER POR ID
 router.get("/:id", async (req, res) => {
   try {
     const jugador = await prisma.jugador.findUnique({
       where: { id: req.params.id },
-      include: { club: { select: { nombre: true } } },
+      include: {
+        club: { select: { id: true, nombre: true, siglas: true } },
+        movimientos: {
+          include: {
+            clubOrigen: { select: { id: true, nombre: true, siglas: true } },
+            clubDestino: { select: { id: true, nombre: true, siglas: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
     });
     if (!jugador)
       return res.status(404).json({ error: "Jugador no encontrado" });
     res.json(jugador);
   } catch (error) {
     res.status(500).json({ error: "Error al obtener jugador" });
+  }
+});
+
+router.post("/:id/prestamo", async (req, res) => {
+  try {
+    const { clubDestinoId, meses, observaciones } = req.body;
+
+    const mesesPrestamo = Number.parseInt(meses, 10);
+    if (
+      !clubDestinoId ||
+      !Number.isInteger(mesesPrestamo) ||
+      mesesPrestamo <= 0
+    ) {
+      return res.status(400).json({
+        error:
+          "Debes indicar un club destino válido y la cantidad de meses del préstamo.",
+      });
+    }
+
+    const jugador = await prisma.jugador.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, clubId: true, nombreCompleto: true },
+    });
+
+    if (!jugador)
+      return res.status(404).json({ error: "Jugador no encontrado" });
+    if (jugador.clubId === clubDestinoId) {
+      return res
+        .status(400)
+        .json({ error: "El club destino debe ser distinto al club actual." });
+    }
+
+    const clubDestino = await prisma.club.findUnique({
+      where: { id: clubDestinoId },
+      select: { id: true },
+    });
+
+    if (!clubDestino)
+      return res.status(404).json({ error: "Club destino no encontrado" });
+
+    const prestamoActivo = await prisma.movimientoJugador.findFirst({
+      where: {
+        jugadorId: req.params.id,
+        tipo: TIPOS_MOVIMIENTO.PRESTAMO,
+        estado: ESTADOS_MOVIMIENTO.ACTIVO,
+      },
+    });
+
+    if (prestamoActivo) {
+      return res
+        .status(400)
+        .json({ error: "El jugador ya tiene un préstamo activo." });
+    }
+
+    const fechaInicio = new Date();
+    const fechaFin = sumarMeses(fechaInicio, mesesPrestamo);
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const movimiento = await tx.movimientoJugador.create({
+        data: {
+          jugadorId: jugador.id,
+          clubOrigenId: jugador.clubId,
+          clubDestinoId,
+          tipo: TIPOS_MOVIMIENTO.PRESTAMO,
+          estado: ESTADOS_MOVIMIENTO.ACTIVO,
+          duracionMeses: mesesPrestamo,
+          fechaInicio,
+          fechaFin,
+          observaciones: observaciones || null,
+        },
+        include: {
+          clubOrigen: { select: { id: true, nombre: true, siglas: true } },
+          clubDestino: { select: { id: true, nombre: true, siglas: true } },
+        },
+      });
+
+      const jugadorActualizado = await tx.jugador.update({
+        where: { id: jugador.id },
+        data: { clubId: clubDestinoId },
+        include: { club: { select: { id: true, nombre: true, siglas: true } } },
+      });
+
+      return { movimiento, jugador: jugadorActualizado };
+    });
+
+    res.status(201).json(resultado);
+  } catch (error) {
+    res.status(500).json({ error: "Error al registrar el préstamo" });
+  }
+});
+
+router.post("/:id/pase", verificarToken, async (req, res) => {
+  try {
+    // Solo administradores pueden registrar un pase definitivo
+    if (!req.club || req.club.role !== "admin") {
+      return res
+        .status(403)
+        .json({
+          error: "Acceso denegado: solo administradores pueden realizar pases.",
+        });
+    }
+
+    const { clubDestinoId, observaciones } = req.body;
+
+    if (!clubDestinoId) {
+      return res
+        .status(400)
+        .json({ error: "Debes indicar un club destino válido." });
+    }
+
+    const jugador = await prisma.jugador.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, clubId: true, nombreCompleto: true },
+    });
+
+    if (!jugador)
+      return res.status(404).json({ error: "Jugador no encontrado" });
+    if (jugador.clubId === clubDestinoId) {
+      return res
+        .status(400)
+        .json({ error: "El club destino debe ser distinto al club actual." });
+    }
+
+    const clubDestino = await prisma.club.findUnique({
+      where: { id: clubDestinoId },
+      select: { id: true },
+    });
+
+    if (!clubDestino)
+      return res.status(404).json({ error: "Club destino no encontrado" });
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const movimiento = await tx.movimientoJugador.create({
+        data: {
+          jugadorId: jugador.id,
+          clubOrigenId: jugador.clubId,
+          clubDestinoId,
+          tipo: TIPOS_MOVIMIENTO.PASE,
+          estado: ESTADOS_MOVIMIENTO.CONFIRMADO,
+          fechaInicio: new Date(),
+          observaciones: observaciones || null,
+        },
+        include: {
+          clubOrigen: { select: { id: true, nombre: true, siglas: true } },
+          clubDestino: { select: { id: true, nombre: true, siglas: true } },
+        },
+      });
+
+      const jugadorActualizado = await tx.jugador.update({
+        where: { id: jugador.id },
+        data: { clubId: clubDestinoId },
+        include: { club: { select: { id: true, nombre: true, siglas: true } } },
+      });
+
+      return { movimiento, jugador: jugadorActualizado };
+    });
+
+    res.status(201).json(resultado);
+  } catch (error) {
+    res.status(500).json({ error: "Error al registrar el pase" });
+  }
+});
+
+router.post("/:id/devolver-prestamo", verificarToken, async (req, res) => {
+  try {
+    // Solo administradores pueden forzar la devolución de un préstamo
+    if (!req.club || req.club.role !== "admin") {
+      return res
+        .status(403)
+        .json({
+          error:
+            "Acceso denegado: solo administradores pueden devolver préstamos.",
+        });
+    }
+
+    const { observaciones } = req.body;
+
+    const prestamoActivo = await prisma.movimientoJugador.findFirst({
+      where: {
+        jugadorId: req.params.id,
+        tipo: TIPOS_MOVIMIENTO.PRESTAMO,
+        estado: ESTADOS_MOVIMIENTO.ACTIVO,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!prestamoActivo) {
+      return res
+        .status(400)
+        .json({ error: "No existe un préstamo activo para devolver." });
+    }
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      const jugadorActualizado = await tx.jugador.update({
+        where: { id: req.params.id },
+        data: { clubId: prestamoActivo.clubOrigenId },
+        include: { club: { select: { id: true, nombre: true, siglas: true } } },
+      });
+
+      const movimiento = await tx.movimientoJugador.update({
+        where: { id: prestamoActivo.id },
+        data: {
+          estado: ESTADOS_MOVIMIENTO.FINALIZADO,
+          fechaCierre: new Date(),
+          observaciones: observaciones || prestamoActivo.observaciones,
+        },
+        include: {
+          clubOrigen: { select: { id: true, nombre: true, siglas: true } },
+          clubDestino: { select: { id: true, nombre: true, siglas: true } },
+        },
+      });
+
+      return { movimiento, jugador: jugadorActualizado };
+    });
+
+    res.json(resultado);
+  } catch (error) {
+    res.status(500).json({ error: "Error al devolver el préstamo" });
   }
 });
 
@@ -264,6 +526,9 @@ router.delete("/:id", async (req, res) => {
       where: { id: req.params.id },
     });
     if (jugador) {
+      await prisma.movimientoJugador.deleteMany({
+        where: { jugadorId: req.params.id },
+      });
       borrarArchivoFisico(jugador.fichaMedicaUrl);
       borrarArchivoFisico(jugador.autorizacionUrl);
       borrarArchivoFisico(jugador.fichaJugadorUrl);

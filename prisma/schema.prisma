@@ -34,6 +34,7 @@ model Jugador {
   club            Club     @relation(fields: [clubId], references: [id])
   
   eventos         EventoPartido[]
+  movimientos     MovimientoJugador[]
   
   createdAt       DateTime @default(now())
 }
@@ -93,6 +94,8 @@ model Club {
   esInvitado Boolean  @default(false)
 
   jugadores         Jugador[]
+  movimientosOrigen MovimientoJugador[] @relation("ClubOrigenMovimientos")
+  movimientosDestino MovimientoJugador[] @relation("ClubDestinoMovimientos")
   tablasPosiciones  Posicion[]
   partidosLocal     Partido[]  @relation("RelacionLocal")
   partidosVisitante Partido[]  @relation("RelacionVisitante")
@@ -180,6 +183,29 @@ model Attachment {
   url       String
   messageId String
   message   Message @relation(fields: [messageId], references: [id])
+}
+
+model MovimientoJugador {
+  id             String   @id @default(uuid())
+  jugadorId      String
+  clubOrigenId   String
+  clubDestinoId  String
+  tipo           String
+  estado         String   @default("Activo")
+  duracionMeses  Int?
+  fechaInicio    DateTime @default(now())
+  fechaFin       DateTime?
+  fechaCierre    DateTime?
+  observaciones  String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  jugador        Jugador  @relation(fields: [jugadorId], references: [id], onDelete: Cascade)
+  clubOrigen     Club     @relation("ClubOrigenMovimientos", fields: [clubOrigenId], references: [id], onDelete: Cascade)
+  clubDestino    Club     @relation("ClubDestinoMovimientos", fields: [clubDestinoId], references: [id], onDelete: Cascade)
+
+  @@index([jugadorId, estado])
+  @@index([clubOrigenId])
+  @@index([clubDestinoId])
 }
 // --- MODELO STAFF (Federación) ---
 model Staff {

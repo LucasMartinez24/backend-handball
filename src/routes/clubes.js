@@ -149,6 +149,12 @@ router.delete("/:id", async (req, res) => {
       // Borrar posiciones en tablas
       await tx.posicion.deleteMany({ where: { clubId: id } });
 
+      await tx.movimientoJugador.deleteMany({
+        where: {
+          OR: [{ clubOrigenId: id }, { clubDestinoId: id }],
+        },
+      });
+
       // Borrar partidos donde el club participó (Local o Visitante)
       await tx.partido.deleteMany({
         where: {
