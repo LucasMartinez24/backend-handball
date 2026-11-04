@@ -2,17 +2,23 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 
-// Obtener tabla de posiciones por torneo
+// Obtener tabla de posiciones por torneo (con soporte para grupos/zonas)
 router.get("/torneo/:torneoId", async (req, res) => {
   const { torneoId } = req.params;
+  const { grupo } = req.query;
 
   try {
+    const where = { torneoId: torneoId };
+    if (grupo) where.grupo = grupo;
+
     const tabla = await prisma.posicion.findMany({
-      where: { torneoId: torneoId },
+      where,
       include: {
         club: {
           select: {
+            id: true,
             nombre: true,
+            siglas: true,
             logoUrl: true,
           },
         },

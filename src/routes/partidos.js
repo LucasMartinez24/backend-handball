@@ -229,12 +229,20 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
 
         const data = {
           torneoId,
-          jornada: parseInt(jornada.numero),
+          jornada: parseInt(jornada.numero) || 1,
+          fase: p.fase || (p.grupo ? `Zona ${p.grupo}` : "Fase Regular"),
+          grupo: p.grupo || null,
           localId: p.localId,
           visitanteId: p.visitanteId,
           fecha: fechaFinal,
           lugar: p.lugar || "Sede a definir",
           estado: p.estado || "Programado",
+          penalesLocal: p.penalesLocal !== undefined ? Number(p.penalesLocal) : 0,
+          penalesVisitante: p.penalesVisitante !== undefined ? Number(p.penalesVisitante) : 0,
+          arbitro1: p.arbitro1 || null,
+          arbitro2: p.arbitro2 || null,
+          cronometrista: p.cronometrista || null,
+          observaciones: p.observaciones || null,
         };
 
         if (p.id) {
@@ -251,6 +259,50 @@ router.post("/torneo/:torneoId/fixture", async (req, res) => {
     res.json({ message: "Fixture guardado correctamente" });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * ACTUALIZAR DETALLES / DESIGNACIONES DE UN PARTIDO
+ */
+router.patch("/:id", async (req, res) => {
+  try {
+    const { fecha, hora, lugar, estado, arbitro1, arbitro2, cronometrista, observaciones, localId, visitanteId, jornada, fase, grupo } = req.body;
+    let fechaFinal = undefined;
+    if (fecha !== undefined) {
+      if (fecha && hora) {
+        const dateObj = new Date(`${fecha}T${hora}:00`);
+        dateObj.setHours(dateObj.getHours() + 3);
+        fechaFinal = dateObj;
+      } else if (fecha) {
+        fechaFinal = new Date(fecha);
+      } else {
+        fechaFinal = null;
+      }
+    }
+
+    const data = {};
+    if (fechaFinal !== undefined) data.fecha = fechaFinal;
+    if (lugar !== undefined) data.lugar = lugar;
+    if (estado !== undefined) data.estado = estado;
+    if (arbitro1 !== undefined) data.arbitro1 = arbitro1;
+    if (arbitro2 !== undefined) data.arbitro2 = arbitro2;
+    if (cronometrista !== undefined) data.cronometrista = cronometrista;
+    if (observaciones !== undefined) data.observaciones = observaciones;
+    if (localId !== undefined) data.localId = localId;
+    if (visitanteId !== undefined) data.visitanteId = visitanteId;
+    if (jornada !== undefined) data.jornada = parseInt(jornada);
+    if (fase !== undefined) data.fase = fase;
+    if (grupo !== undefined) data.grupo = grupo;
+
+    const partido = await prisma.partido.update({
+      where: { id: req.params.id },
+      data,
+      include: { local: true, visitante: true }
+    });
+    res.json(partido);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

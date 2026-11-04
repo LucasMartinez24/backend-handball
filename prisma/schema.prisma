@@ -35,26 +35,36 @@ model Jugador {
   
   eventos         EventoPartido[]
   movimientos     MovimientoJugador[]
+  sanciones       Sancion[]
   
   createdAt       DateTime @default(now())
 }
 
 // --- MODELO TORNEO ---
 model Torneo {
-  id              String   @id @default(uuid())
-  nombre          String
-  categoria       String
-  rama            String
-  formato         String   
-  idaVuelta       Boolean  @default(false)
-  estado          String   @default("Upcoming")
-  fechaInicio     DateTime
-  progreso        Int      @default(0)
-  colorClase      String
+  id                String   @id @default(uuid())
+  nombre            String
+  categoria         String
+  rama              String
+  formato           String   
+  idaVuelta         Boolean  @default(false)
+  estado            String   @default("Upcoming")
+  fechaInicio       DateTime
+  progreso          Int      @default(0)
+  colorClase        String
 
-  tablaPosiciones Posicion[]
-  partidos        Partido[]
-  createdAt       DateTime @default(now())
+  // Configuración de formato y estructura deportiva
+  temporada         String?  @default("2026")
+  sedes             String?  @db.Text
+  faseInicial       String?  @default("semifinales")
+  tercerPuesto      Boolean? @default(true)
+  modalidadLlave    String?  @default("ida_vuelta")
+  cantidadGrupos    Int?     @default(2)
+  criterioDesempate String?  @default("dif_gol")
+
+  tablaPosiciones   Posicion[]
+  partidos          Partido[]
+  createdAt         DateTime @default(now())
 }
 
 // --- MODELO POSICION ---
@@ -69,6 +79,7 @@ model Posicion {
   gf        Int    @default(0)
   gc        Int    @default(0)
   dg        Int    @default(0)
+  grupo     String? @default("General")
 
   torneoId  String
   torneo    Torneo @relation(fields: [torneoId], references: [id], onDelete: Cascade)
@@ -101,6 +112,7 @@ model Club {
   partidosVisitante Partido[]  @relation("RelacionVisitante")
 
   tickets           Ticket[]
+  sanciones         Sancion[]
   created_at        DateTime @default(now())
 }
 
@@ -110,6 +122,10 @@ model Partido {
   id               String    @id @default(uuid())
   torneoId         String
   jornada          Int
+  fase             String?   @default("Fase Regular")
+  grupo            String?
+  penalesLocal     Int?      @default(0)
+  penalesVisitante Int?      @default(0)
   
   localId          String
   visitanteId      String
@@ -226,4 +242,31 @@ model Galeria {
 
   @@index([categoria]) // Acelera el filtrado por categoría
   @@index([createdAt]) // Acelera el ordenamiento por fecha
+}
+
+// --- MODELO SANCIÓN / TRIBUNAL DE PENAS ---
+model Sancion {
+  id          String   @id @default(uuid())
+  sancionado  String
+  institucion String
+  categoria   String
+  fallo       String
+  cumplidas   Int      @default(0)
+  totales     Int      @default(1)
+  vigencia    String?  @default("Torneo Apertura 2026")
+  expediente  String
+  estado      String   @default("grave") // grave | advertencia | provisorio
+  motivo      String?  @db.Text
+
+  jugadorId   String?
+  jugador     Jugador? @relation(fields: [jugadorId], references: [id], onDelete: SetNull)
+
+  clubId      String?
+  club        Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([jugadorId])
+  @@index([clubId])
 }

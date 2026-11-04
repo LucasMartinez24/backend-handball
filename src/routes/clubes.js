@@ -20,36 +20,69 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", upload.single("logo"), async (req, res) => {
-  const { nombre, siglas, username, password } = req.body;
-  const logoUrl = req.file ? `/uploads/logos/${req.file.filename}` : null;
-
+// OBTENER CLUB POR ID
+router.get("/:id", async (req, res) => {
+  const { id } = req.params;
   try {
-    const nuevoClub = await prisma.club.create({
-      data: {
-        nombre,
-        siglas,
-        username,
-        password: await bcrypt.hash(password, 10),
-        logoUrl: logoUrl,
+    const club = await prisma.club.findUnique({
+      where: { id },
+      include: {
+        jugadores: true,
       },
     });
+
+    if (!club) {
+      return res.status(404).json({ error: "Club no encontrado" });
+    }
+
+    res.json(club);
+  } catch (error) {
+    console.error("Error al obtener club por id:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/", upload.single("logo"), async (req, res) => {
+  const { nombre, siglas, username, password, esInvitado, tipoAfiliacion } = req.body;
+  const logoUrl = req.file ? `/uploads/logos/${req.file.filename}` : null;
+  const isInvitado = esInvitado === true || esInvitado === "true" || tipoAfiliacion === "invitado";
+
+  try {
+    const data = {
+      nombre: nombre ? nombre.trim() : "",
+      siglas: siglas ? siglas.trim().toUpperCase() : "",
+      logoUrl: logoUrl,
+      esInvitado: isInvitado,
+    };
+
+    if (username && username.trim() !== "") {
+      data.username = username.trim();
+    } else {
+      data.username = null;
+    }
+
+    if (password && password.trim() !== "") {
+      data.password = await bcrypt.hash(password.trim(), 10);
+    } else {
+      data.password = null;
+    }
+
+    const nuevoClub = await prisma.club.create({ data });
     res.json(nuevoClub);
   } catch (error) {
-    // P2002 es el código de Prisma para violación de restricción única
     if (error.code === "P2002") {
       return res.status(400).json({
-        message:
-          "Las siglas o el nombre de usuario ya están registrados por otra institución.",
+        message: "Las siglas o el nombre de usuario ya están registrados por otra institución.",
       });
     }
-    res.status(500).json({ message: "Error interno del servidor" });
+    console.error("Error al crear club:", error);
+    res.status(500).json({ message: error.message || "Error interno del servidor" });
   }
 });
 
 router.put("/:id", upload.single("logo"), async (req, res) => {
   const { id } = req.params;
-  const { nombre, siglas, username, password } = req.body;
+  const { nombre, siglas, username, password, esInvitado, tipoAfiliacion } = req.body;
 
   try {
     const clubActual = await prisma.club.findUnique({ where: { id: id } });
@@ -62,22 +95,37 @@ router.put("/:id", upload.single("logo"), async (req, res) => {
 
     let hashedPassword = clubActual.password;
     if (password && password.trim() !== "") {
-      hashedPassword = await bcrypt.hash(password, 10);
+      hashedPassword = await bcrypt.hash(password.trim(), 10);
+    }
+
+    const isInvitado = esInvitado !== undefined
+      ? (esInvitado === true || esInvitado === "true")
+      : (tipoAfiliacion ? tipoAfiliacion === "invitado" : clubActual.esInvitado);
+
+    const data = {
+      nombre: nombre ? nombre.trim() : clubActual.nombre,
+      siglas: siglas ? siglas.trim().toUpperCase() : clubActual.siglas,
+      logoUrl: logoUrl,
+      password: hashedPassword,
+      esInvitado: isInvitado,
+    };
+
+    if (username !== undefined) {
+      data.username = username && username.trim() !== "" ? username.trim() : null;
     }
 
     const actualizado = await prisma.club.update({
       where: { id: id },
-      data: {
-        nombre: nombre || clubActual.nombre,
-        siglas: siglas || clubActual.siglas,
-        username: username || clubActual.username,
-        password: hashedPassword,
-        logoUrl: logoUrl,
-      },
+      data: data,
     });
 
     res.json(actualizado);
   } catch (error) {
+    if (error.code === "P2002") {
+      return res.status(400).json({
+        message: "Las siglas o el nombre de usuario ya están registrados por otra institución.",
+      });
+    }
     console.error("Error al actualizar club:", error);
     res.status(500).json({ error: error.message });
   }
@@ -162,7 +210,8 @@ router.delete("/:id", async (req, res) => {
         },
       });
 
-      // C. Limpiar Jugadores
+      // C. Limpiar Sanciones y Jugadores
+      await tx.sancion.deleteMany({ where: { clubId: id } });
       await tx.jugador.deleteMany({ where: { clubId: id } });
 
       // D. FINALMENTE: Borrar el Club

@@ -10,7 +10,10 @@ router.get("/club/:clubId", async (req, res) => {
           some: { clubId: clubId },
         },
       },
-      include: { _count: { select: { tablaPosiciones: true } } },
+      include: {
+        _count: { select: { tablaPosiciones: true } },
+        tablaPosiciones: { select: { clubId: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -28,7 +31,10 @@ router.get("/club/:clubId", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const torneos = await prisma.torneo.findMany({
-      include: { _count: { select: { tablaPosiciones: true } } },
+      include: {
+        _count: { select: { tablaPosiciones: true } },
+        tablaPosiciones: { select: { clubId: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
     const response = torneos.map((t) => ({
@@ -47,7 +53,10 @@ router.get("/:id", async (req, res) => {
   try {
     const torneo = await prisma.torneo.findUnique({
       where: { id },
-      include: { _count: { select: { tablaPosiciones: true } } },
+      include: {
+        _count: { select: { tablaPosiciones: true } },
+        tablaPosiciones: { select: { clubId: true } },
+      },
     });
     if (!torneo) return res.status(404).json({ error: "Torneo no encontrado" });
     res.json({ ...torneo, equiposCount: torneo._count.tablaPosiciones });
@@ -103,12 +112,28 @@ router.delete("/:id", async (req, res) => {
     });
   }
 });
-// PUT /api/torneos/:id - Actualizar torneo (estado, etc.)
+// PUT /api/torneos/:id - Actualizar torneo (estado, formato, configuracion)
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
-  const { nombre, categoria, rama, estado, fechaInicio, progreso, formato, colorClase, idaVuelta } = req.body;
+  const {
+    nombre,
+    categoria,
+    rama,
+    estado,
+    fechaInicio,
+    progreso,
+    formato,
+    colorClase,
+    idaVuelta,
+    temporada,
+    sedes,
+    faseInicial,
+    tercerPuesto,
+    modalidadLlave,
+    cantidadGrupos,
+    criterioDesempate,
+  } = req.body;
   try {
-    // Construir solo los campos que vienen en el body
     const dataToUpdate = {};
     if (nombre !== undefined) dataToUpdate.nombre = nombre;
     if (categoria !== undefined) dataToUpdate.categoria = categoria;
@@ -119,6 +144,15 @@ router.put("/:id", async (req, res) => {
     if (formato !== undefined) dataToUpdate.formato = formato;
     if (colorClase !== undefined) dataToUpdate.colorClase = colorClase;
     if (idaVuelta !== undefined) dataToUpdate.idaVuelta = Boolean(idaVuelta);
+    if (temporada !== undefined) dataToUpdate.temporada = temporada;
+    if (sedes !== undefined) {
+      dataToUpdate.sedes = Array.isArray(sedes) ? JSON.stringify(sedes) : (sedes ? String(sedes) : null);
+    }
+    if (faseInicial !== undefined) dataToUpdate.faseInicial = faseInicial;
+    if (tercerPuesto !== undefined) dataToUpdate.tercerPuesto = Boolean(tercerPuesto);
+    if (modalidadLlave !== undefined) dataToUpdate.modalidadLlave = modalidadLlave;
+    if (cantidadGrupos !== undefined) dataToUpdate.cantidadGrupos = Number(cantidadGrupos);
+    if (criterioDesempate !== undefined) dataToUpdate.criterioDesempate = criterioDesempate;
 
     const torneoActualizado = await prisma.torneo.update({
       where: { id },
@@ -143,6 +177,13 @@ router.post("/", async (req, res) => {
     formato,
     colorClase,
     idaVuelta,
+    temporada,
+    sedes,
+    faseInicial,
+    tercerPuesto,
+    modalidadLlave,
+    cantidadGrupos,
+    criterioDesempate,
   } = req.body;
   try {
     const nuevoTorneo = await prisma.torneo.create({
@@ -150,16 +191,84 @@ router.post("/", async (req, res) => {
         nombre,
         categoria,
         rama,
-        estado,
+        estado: estado || "Upcoming",
         fechaInicio: new Date(fechaInicio),
         progreso: Number(progreso) || 0,
-        formato,
-        colorClase,
+        formato: formato || "liga",
+        colorClase: colorClase || "from-[#0b3c5d] via-court-card to-surface-container",
         idaVuelta: Boolean(idaVuelta),
+        temporada: temporada || "2026",
+        sedes: Array.isArray(sedes) ? JSON.stringify(sedes) : (sedes ? String(sedes) : null),
+        faseInicial: faseInicial || "semifinales",
+        tercerPuesto: tercerPuesto !== undefined ? Boolean(tercerPuesto) : true,
+        modalidadLlave: modalidadLlave || "ida_vuelta",
+        cantidadGrupos: Number(cantidadGrupos) || 2,
+        criterioDesempate: criterioDesempate || "dif_gol",
       },
     });
     res.json(nuevoTorneo);
   } catch (error) {
+    console.error("Error al crear torneo:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/torneos/:id/estructura - Detalle y organizacion de formato
+router.get("/:id/estructura", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const torneo = await prisma.torneo.findUnique({
+      where: { id },
+      include: {
+        partidos: {
+          include: {
+            local: { select: { id: true, nombre: true, siglas: true, logoUrl: true } },
+            visitante: { select: { id: true, nombre: true, siglas: true, logoUrl: true } },
+          },
+          orderBy: [{ jornada: "asc" }, { fecha: "asc" }],
+        },
+        tablaPosiciones: {
+          include: {
+            club: { select: { id: true, nombre: true, siglas: true, logoUrl: true } },
+          },
+          orderBy: [{ puntos: "desc" }, { dg: "desc" }, { gf: "desc" }],
+        },
+      },
+    });
+
+    if (!torneo) return res.status(404).json({ error: "Torneo no encontrado" });
+
+    let sedesArray = [];
+    if (torneo.sedes) {
+      try {
+        sedesArray = JSON.parse(torneo.sedes);
+      } catch {
+        sedesArray = torneo.sedes.split(",").map((s) => s.trim());
+      }
+    }
+
+    const partidosPorFase = {};
+    for (const p of torneo.partidos) {
+      const faseKey = p.fase || (p.grupo ? `Zona ${p.grupo}` : `Jornada ${p.jornada}`);
+      if (!partidosPorFase[faseKey]) partidosPorFase[faseKey] = [];
+      partidosPorFase[faseKey].push(p);
+    }
+
+    const tablasPorGrupo = {};
+    for (const pos of torneo.tablaPosiciones) {
+      const gKey = pos.grupo || "General";
+      if (!tablasPorGrupo[gKey]) tablasPorGrupo[gKey] = [];
+      tablasPorGrupo[gKey].push(pos);
+    }
+
+    res.json({
+      ...torneo,
+      sedesList: sedesArray,
+      partidosPorFase,
+      tablasPorGrupo,
+    });
+  } catch (error) {
+    console.error("Error al obtener estructura del torneo:", error);
     res.status(500).json({ error: error.message });
   }
 });

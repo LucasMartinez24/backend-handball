@@ -486,6 +486,11 @@ router.put("/:id", cpUpload, async (req, res) => {
         categoria: data.categoria,
         categoriaEspecial: data.categoriaEspecial,
         genero: data.genero,
+        nacionalidad: data.nacionalidad !== undefined ? data.nacionalidad : undefined,
+        email: data.email !== undefined ? data.email : undefined,
+        whatsapp: data.whatsapp !== undefined ? data.whatsapp : undefined,
+        tutorPhone: data.tutorPhone !== undefined ? data.tutorPhone : undefined,
+        manoHabil: data.manoHabil !== undefined ? data.manoHabil : undefined,
         equipo: data.equipo || "A",
         clubId: finalClubId, // AQUÍ SE REALIZA LA MUDANZA SI CAMBIÓ LA LETRA
         fechaNacimiento: data.fechaNacimiento
