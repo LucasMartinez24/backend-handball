@@ -119,7 +119,41 @@ router.patch("/:id/resultado", async (req, res) => {
           }
           // Tarjetas Especiales
           if (j.roja) eventosData.push({ ...baseEvento, tipo: "ROJA" });
-          if (j.azul) eventosData.push({ ...baseEvento, tipo: "AZUL" });
+          if (j.azul) {
+            eventosData.push({ ...baseEvento, tipo: "AZUL" });
+
+            // Creación automática de expediente preventivo en Tribunal de Penas si el jugador está federado
+            if (j.jugadorId) {
+              const jugadorInfo = await tx.jugador.findUnique({
+                where: { id: j.jugadorId },
+                include: { club: true },
+              });
+              if (jugadorInfo) {
+                await tx.sancion.create({
+                  data: {
+                    sancionado: jugadorInfo.nombreCompleto,
+                    institucion: jugadorInfo.club?.nombre || "Club Afiliado",
+                    categoria: jugadorInfo.categoria || "Primera División",
+                    fallo: "Suspensión Preventiva (Informe Arbitral por Tarjeta Azul)",
+                    cumplidas: 0,
+                    totales: 1,
+                    vigencia: "En revisión por Tribunal de Penas",
+                    expediente: `EXP-AZUL-${Date.now().toString().slice(-6)}`,
+                    estado: "grave",
+                    motivo: `Informe arbitral del partido ${partido.local?.nombre || ''} vs ${partido.visitante?.nombre || ''}. Tarjeta Azul disciplinaria.`,
+                    jugadorId: jugadorInfo.id,
+                    clubId: jugadorInfo.clubId,
+                  },
+                });
+
+                // Inhabilitar temporalmente al jugador
+                await tx.jugador.update({
+                  where: { id: jugadorInfo.id },
+                  data: { estado: "Sancionado" },
+                });
+              }
+            }
+          }
         }
 
         if (eventosData.length > 0) {
@@ -308,7 +342,47 @@ router.patch("/:id", async (req, res) => {
 });
 
 /**
- * 6. ELIMINAR PARTIDO
+ * 6. CREAR PARTIDO INDIVIDUAL (PLAYOFFS O EXTRA)
+ */
+router.post("/partido", async (req, res) => {
+  try {
+    const { torneoId, jornada, fase, grupo, localId, visitanteId, fecha, hora, lugar, estado } = req.body;
+    let fechaFinal = null;
+    if (fecha && hora) {
+      const dateObj = new Date(`${fecha}T${hora}:00`);
+      dateObj.setHours(dateObj.getHours() + 3);
+      fechaFinal = dateObj;
+    } else if (fecha) {
+      fechaFinal = new Date(fecha);
+    }
+
+    const nuevoPartido = await prisma.partido.create({
+      data: {
+        torneoId,
+        jornada: parseInt(jornada) || 99,
+        fase: fase || "Playoffs",
+        grupo: grupo || null,
+        localId,
+        visitanteId,
+        fecha: fechaFinal,
+        lugar: lugar || "Sede a definir",
+        estado: estado || "Programado",
+      },
+      include: {
+        local: true,
+        visitante: true,
+      },
+    });
+
+    res.status(201).json(nuevoPartido);
+  } catch (error) {
+    console.error("Error al crear partido individual:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 7. ELIMINAR PARTIDO
  */
 router.delete("/:id", async (req, res) => {
   try {
