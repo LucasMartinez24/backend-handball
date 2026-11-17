@@ -24,7 +24,12 @@ router.get("/", async (req, res) => {
     const tickets = await prisma.ticket.findMany({
       where: clubId ? { clubId: clubId } : {},
       include: {
-        club: { select: { nombre: true, logoUrl: true } },
+        club: { select: { id: true, nombre: true, siglas: true, logoUrl: true, esInvitado: true } },
+        messages: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: { text: true, createdAt: true, senderRole: true, isInternal: true },
+        },
         _count: { select: { messages: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -35,21 +40,22 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 2. CREAR TICKET (Iniciado por el Club)
+// 2. CREAR TICKET (Iniciado por el Club o por Admin hacia un Club)
 router.post("/", ticketUpload, async (req, res) => {
-  const { asunto, categoria, descripcion, clubId } = req.body;
+  const { asunto, categoria, descripcion, clubId, senderRole, senderName, status } = req.body;
 
   try {
     const ticket = await prisma.ticket.create({
       data: {
         asunto: asunto,
-        categoria: categoria || "General", // Garantizamos que no sea NULL
+        categoria: categoria || "General",
+        status: status || "Abierto",
         clubId: clubId,
         messages: {
           create: {
             text: descripcion,
-            senderRole: "CLUB",
-            senderName: "Secretaría del Club", // Ahora Prisma lo reconocerá
+            senderRole: senderRole || "CLUB",
+            senderName: senderName || "Secretaría del Club",
             attachments: {
               create: req.files
                 ? req.files.map((f) => ({
@@ -62,8 +68,9 @@ router.post("/", ticketUpload, async (req, res) => {
         },
       },
       include: {
-        club: true,
+        club: { select: { id: true, nombre: true, siglas: true, logoUrl: true, esInvitado: true } },
         messages: { include: { attachments: true } },
+        _count: { select: { messages: true } },
       },
     });
     res.status(201).json(ticket);
@@ -139,6 +146,26 @@ router.patch("/:id/status", async (req, res) => {
     res.json(actualizado);
   } catch (error) {
     res.status(500).json({ error: "No se pudo actualizar el estado" });
+  }
+});
+
+// 6. ELIMINAR TICKET (Solo Admin)
+router.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await prisma.attachment.deleteMany({
+      where: { message: { ticketId: id } },
+    });
+    await prisma.message.deleteMany({
+      where: { ticketId: id },
+    });
+    await prisma.ticket.delete({
+      where: { id },
+    });
+    res.json({ message: "Expediente eliminado correctamente" });
+  } catch (error) {
+    console.error("Error al eliminar ticket:", error);
+    res.status(500).json({ error: "No se pudo eliminar el expediente" });
   }
 });
 

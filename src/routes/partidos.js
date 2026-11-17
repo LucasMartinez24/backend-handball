@@ -446,11 +446,22 @@ router.patch("/:id", async (req, res) => {
     let fechaFinal = undefined;
     if (fecha !== undefined) {
       if (fecha && hora) {
-        const dateObj = new Date(`${fecha}T${hora}:00`);
-        dateObj.setHours(dateObj.getHours() + 3);
-        fechaFinal = dateObj;
+        const cleanDate = String(fecha).trim().substring(0, 10);
+        const matchHora = String(hora).trim().match(/(\d{1,2}):(\d{2})/);
+        if (matchHora) {
+          const hh = matchHora[1].padStart(2, "0");
+          const mm = matchHora[2];
+          const dateObj = new Date(`${cleanDate}T${hh}:${mm}:00`);
+          if (!isNaN(dateObj.getTime())) {
+            fechaFinal = dateObj;
+          }
+        } else {
+          const dateObj = new Date(cleanDate);
+          if (!isNaN(dateObj.getTime())) fechaFinal = dateObj;
+        }
       } else if (fecha) {
-        fechaFinal = new Date(fecha);
+        const dateObj = new Date(fecha);
+        if (!isNaN(dateObj.getTime())) fechaFinal = dateObj;
       } else {
         fechaFinal = null;
       }

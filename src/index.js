@@ -45,6 +45,7 @@ app.use("/api/posiciones", posicionesRoutes);
 app.use("/api/sanciones", require("./routes/sanciones"));
 app.use("/api/boletines", require("./routes/boletines"));
 app.use("/api/galeria", require("./routes/galeria"));
+app.use("/api/calendario-eventos", require("./routes/calendario-eventos"));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 // Restart nodemon trigger
 const PORT = process.env.PORT || 3000;
