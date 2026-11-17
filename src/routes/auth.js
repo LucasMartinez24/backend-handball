@@ -45,6 +45,9 @@ router.post("/login", async (req, res) => {
         username: user.username,
         role: userRole,
         nombre: user.nombre || user.nombreCompleto,
+        siglas: user.siglas || null,
+        logoUrl: user.logoUrl || null,
+        esInvitado: user.esInvitado ?? false,
       },
     });
   } catch (error) {

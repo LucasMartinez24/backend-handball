@@ -236,20 +236,29 @@ router.delete("/:id", async (req, res) => {
 // backend/src/routes/clubes.js (o jugadores.js según tu estructura)
 router.get("/:id/jugadores", async (req, res) => {
   try {
+    const { estado } = req.query;
+    const club = await prisma.club.findUnique({ where: { id: req.params.id } });
+
+    let whereClause = {};
+    if (club) {
+      const nombreBase = club.nombre.replace(/ [BC]$/, "");
+      whereClause.club = {
+        nombre: {
+          startsWith: nombreBase,
+        },
+      };
+    } else {
+      whereClause.clubId = req.params.id;
+    }
+
+    if (estado) {
+      whereClause.estado = estado;
+    }
+
     const jugadores = await prisma.jugador.findMany({
-      where: {
-        clubId: req.params.id,
-        estado: "Aprobado", // O quita esto si quieres ver a todos
-      },
-      // ESTO ES LO QUE FALTA:
-      select: {
-        id: true,
-        nombreCompleto: true,
-        dni: true,
-        genero: true, // <--- INDISPENSABLE
-        categoria: true, // <--- INDISPENSABLE
-        categoriaEspecial: true, // <--- INDISPENSABLE
-      },
+      where: whereClause,
+      include: { club: true },
+      orderBy: { nombreCompleto: "asc" },
     });
     res.json(jugadores);
   } catch (error) {

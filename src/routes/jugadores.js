@@ -107,6 +107,8 @@ router.get("/", async (req, res) => {
             },
           },
         };
+      } else {
+        whereClause = { clubId };
       }
     }
 

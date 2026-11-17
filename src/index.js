@@ -43,6 +43,7 @@ app.use("/api/torneos", require("./routes/torneos"));
 app.use("/api/partidos", partidosRoutes);
 app.use("/api/posiciones", posicionesRoutes);
 app.use("/api/sanciones", require("./routes/sanciones"));
+app.use("/api/boletines", require("./routes/boletines"));
 app.use("/api/galeria", require("./routes/galeria"));
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 // Restart nodemon trigger
