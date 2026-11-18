@@ -27,6 +27,12 @@ const storage = multer.diskStorage({
       case "fichaJugador": // <--- AGREGAR ESTO
         subFolder = "documentos/fichas-jugadores";
         break;
+      case "attachments":
+        subFolder = "tickets";
+        break;
+      case "archivoPdf":
+        subFolder = "boletines";
+        break;
       default:
         subFolder = "otros";
     }

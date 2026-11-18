@@ -276,9 +276,16 @@ router.get("/:id/agenda-completa", async (req, res) => {
         OR: [{ localId: id }, { visitanteId: id }],
       },
       include: {
-        local: { select: { nombre: true, logoUrl: true, id: true } },
-        visitante: { select: { nombre: true, logoUrl: true, id: true } },
-        torneo: { select: { nombre: true, categoria: true, rama: true } },
+        local: { select: { id: true, nombre: true, siglas: true, logoUrl: true, esInvitado: true } },
+        visitante: { select: { id: true, nombre: true, siglas: true, logoUrl: true, esInvitado: true } },
+        torneo: { select: { id: true, nombre: true, temporada: true, categoria: true, rama: true } },
+        eventos: {
+          include: {
+            jugador: {
+              select: { id: true, nombreCompleto: true, dni: true },
+            },
+          },
+        },
       },
       orderBy: {
         fecha: "asc",
@@ -290,6 +297,7 @@ router.get("/:id/agenda-completa", async (req, res) => {
     res.status(500).json({ error: "Error al obtener la agenda del club" });
   }
 });
+
 // NUEVA RUTA: CREAR CLUB INVITADO RÁPIDO
 router.post("/invitado-rapido", async (req, res) => {
   const { nombre, siglas } = req.body;
@@ -299,7 +307,6 @@ router.post("/invitado-rapido", async (req, res) => {
         nombre: nombre.toUpperCase(),
         siglas: siglas.toUpperCase(),
         esInvitado: true,
-        // No enviamos username ni password, quedan como null
       },
     });
     res.json(nuevoInvitado);
@@ -307,24 +314,5 @@ router.post("/invitado-rapido", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-router.get("/:id/agenda-completa", async (req, res) => {
-  const { id } = req.params;
 
-  try {
-    const partidos = await prisma.partido.findMany({
-      where: {
-        OR: [{ localId: id }, { visitanteId: id }],
-      },
-      select: {
-        torneoId: true, // Solo necesitamos el ID del torneo para contar
-        estado: true,
-      },
-    });
-
-    res.json(partidos);
-  } catch (error) {
-    console.error("Error al obtener agenda:", error);
-    res.status(500).json({ error: "Error al obtener la agenda del club" });
-  }
-});
 module.exports = router;

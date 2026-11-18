@@ -91,7 +91,7 @@ router.post("/", upload.single("archivoPdf"), (req, res) => {
         nombre: req.file.originalname || req.file.filename,
         tamano: sizeStr,
         subtitulo: "Documento Homologado",
-        url: `/uploads/${req.file.filename}`,
+        url: `/uploads/boletines/${req.file.filename}`,
       });
     } else if (body.nombrePdf) {
       adjuntos.push({
