@@ -58,6 +58,11 @@ router.get("/goleadores", async (req, res) => {
     const goleadoresMap = new Map();
 
     for (const ev of eventosGoles) {
+      // 0. Excluir jugadores no registrados/federados (invitados / auxiliares cargados temporalmente en mesa o acta)
+      if (!ev.jugadorId || !ev.jugador) {
+        continue;
+      }
+
       const torneo = ev.partido?.torneo;
       const jugador = ev.jugador;
 
@@ -95,13 +100,13 @@ router.get("/goleadores", async (req, res) => {
       }
 
       // 5. Agrupar por (Jugador + Categoría del Gol) para NUNCA mezclar ni sumar goles de distintas categorías
-      const basePlayerKey = ev.jugadorId || `inv-${ev.nombreInvitado || "Anonimo"}-${ev.equipoId}`;
+      const basePlayerKey = ev.jugadorId;
       const key = `${basePlayerKey}__${catDelGol}`;
 
-      const nombre = jugador ? jugador.nombreCompleto : (ev.nombreInvitado || "Jugador");
-      const clubNombre = jugador?.club?.nombre || "Club Afiliado";
-      const clubLogo = jugador?.club?.logoUrl || null;
-      const clubSiglas = jugador?.club?.siglas || "CLUB";
+      const nombre = jugador.nombreCompleto;
+      const clubNombre = jugador.club?.nombre || "Club Afiliado";
+      const clubLogo = jugador.club?.logoUrl || null;
+      const clubSiglas = jugador.club?.siglas || "CLUB";
 
       if (!goleadoresMap.has(key)) {
         goleadoresMap.set(key, {
