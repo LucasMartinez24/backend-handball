@@ -2,54 +2,29 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 
-// Obtener tabla de goleadores por torneo o general
+// Normaliza la categoría del torneo donde se convirtió el gol
+function normalizarCategoriaCompetencia(rawCat, rawNombre = "") {
+  const c = `${rawCat || ""} ${rawNombre || ""}`.toLowerCase().trim();
+  if (c.includes("+35") || c.includes("maxi") || c.includes("veteran") || /\b35\b/.test(c)) {
+    return "+35";
+  }
+  if (c.includes("primera") || c.includes("1ra") || c.includes("mayores")) return "Primera";
+  if (c.includes("juvenil") || c.includes("sub-18") || c.includes("sub 18")) return "Juveniles";
+  if (c.includes("cadete") || c.includes("sub-16") || c.includes("sub 16")) return "Cadetes";
+  if (c.includes("menor") || c.includes("sub-14") || c.includes("sub 14")) return "Menores";
+  if (c.includes("infantil") || c.includes("mini")) return "Infantiles";
+  return (rawCat || "Primera").replace("División", "").trim();
+}
+
+// Obtener tabla de goleadores por torneo o por categoría de competencia (excluyendo +35 y sin mezclar categorías)
 router.get("/goleadores", async (req, res) => {
   const { torneoId, genero, categoria } = req.query;
 
   try {
     const where = { tipo: "GOL" };
-    const partidoConditions = {};
 
     if (torneoId) {
-      partidoConditions.torneoId = torneoId;
-    }
-
-    // Filtrar por rama del torneo o género del jugador
-    if (genero) {
-      const isMasc = genero.toLowerCase().startsWith("masc");
-      const isFem = genero.toLowerCase().startsWith("fem");
-
-      if (isMasc) {
-        where.OR = [
-          { jugador: { genero: { contains: "Masc" } } },
-          { partido: { torneo: { rama: { contains: "Masc" } } } },
-        ];
-      } else if (isFem) {
-        where.OR = [
-          { jugador: { genero: { contains: "Fem" } } },
-          { partido: { torneo: { rama: { contains: "Fem" } } } },
-        ];
-      }
-    }
-
-    // Filtrar por categoría (tanto en el perfil del jugador como en la categoría del torneo)
-    if (categoria && categoria !== "Todas") {
-      const cleanCat = categoria.replace("División", "").trim();
-      const catCondition = [
-        { jugador: { categoria: { contains: cleanCat } } },
-        { partido: { torneo: { categoria: { contains: cleanCat } } } },
-      ];
-
-      if (where.OR) {
-        where.AND = [{ OR: where.OR }, { OR: catCondition }];
-        delete where.OR;
-      } else {
-        where.OR = catCondition;
-      }
-    }
-
-    if (Object.keys(partidoConditions).length > 0) {
-      where.partido = partidoConditions;
+      where.partido = { torneoId };
     }
 
     const eventosGoles = await prisma.eventoPartido.findMany({
@@ -70,14 +45,63 @@ router.get("/goleadores", async (req, res) => {
       },
     });
 
+    const isMascFilter = genero ? genero.toLowerCase().startsWith("masc") : false;
+    const isFemFilter = genero ? genero.toLowerCase().startsWith("fem") : false;
+    const hasCatFilter = Boolean(categoria && categoria !== "Todas");
+    const targetCat = hasCatFilter ? normalizarCategoriaCompetencia(categoria) : null;
+
+    // Si alguien pide explícitamente "+35", devolver vacío porque +35 no entra en Top Goleadores
+    if (targetCat === "+35") {
+      return res.json([]);
+    }
+
     const goleadoresMap = new Map();
 
     for (const ev of eventosGoles) {
-      const key = ev.jugadorId || `inv-${ev.nombreInvitado || "Anonimo"}-${ev.equipoId}`;
-      const nombre = ev.jugador ? ev.jugador.nombreCompleto : (ev.nombreInvitado || "Jugador");
-      const clubNombre = ev.jugador?.club?.nombre || "Club Afiliado";
-      const clubLogo = ev.jugador?.club?.logoUrl || null;
-      const clubSiglas = ev.jugador?.club?.siglas || "CLUB";
+      const torneo = ev.partido?.torneo;
+      const jugador = ev.jugador;
+
+      // 1. Excluir estrictamente torneos +35 / Maxi y jugadores que sean de categoría +35
+      const catTorneo = normalizarCategoriaCompetencia(torneo?.categoria, torneo?.nombre);
+      const jCatLower = `${jugador?.categoria || ""} ${jugador?.categoriaEspecial || ""}`.toLowerCase();
+      if (
+        catTorneo === "+35" ||
+        (jugador?.categoria || "").toLowerCase().includes("+35") ||
+        (!torneo && jCatLower.includes("+35"))
+      ) {
+        continue;
+      }
+
+      // 2. Determinar la categoría real en la que se convirtió este gol (mandatoria la del torneo del partido)
+      const catDelGol = torneo
+        ? catTorneo
+        : normalizarCategoriaCompetencia(jugador?.categoria);
+
+      if (catDelGol === "+35") {
+        continue;
+      }
+
+      // 3. Filtrar por Rama / Género de la competencia donde se jugó el partido
+      if (isMascFilter || isFemFilter) {
+        const ramaStr = `${torneo?.rama || ""} ${torneo?.nombre || ""} ${jugador?.genero || ""}`.toLowerCase();
+        if (isMascFilter && !ramaStr.includes("masc") && !ramaStr.startsWith("m")) continue;
+        if (isFemFilter && !ramaStr.includes("fem") && !ramaStr.startsWith("f")) continue;
+      }
+
+      // 4. Filtrar estrictamente por la categoría del torneo en que se anotó el gol
+      //    (Un juvenil que anota en Primera suma esos goles solo en Primera; los que anota en Juveniles solo en Juveniles)
+      if (hasCatFilter && catDelGol !== targetCat) {
+        continue;
+      }
+
+      // 5. Agrupar por (Jugador + Categoría del Gol) para NUNCA mezclar ni sumar goles de distintas categorías
+      const basePlayerKey = ev.jugadorId || `inv-${ev.nombreInvitado || "Anonimo"}-${ev.equipoId}`;
+      const key = `${basePlayerKey}__${catDelGol}`;
+
+      const nombre = jugador ? jugador.nombreCompleto : (ev.nombreInvitado || "Jugador");
+      const clubNombre = jugador?.club?.nombre || "Club Afiliado";
+      const clubLogo = jugador?.club?.logoUrl || null;
+      const clubSiglas = jugador?.club?.siglas || "CLUB";
 
       if (!goleadoresMap.has(key)) {
         goleadoresMap.set(key, {
@@ -86,6 +110,7 @@ router.get("/goleadores", async (req, res) => {
           club: clubNombre,
           clubLogo,
           clubSiglas,
+          categoria: catDelGol,
           goles: 0,
           partidosIds: new Set(),
         });
@@ -103,6 +128,7 @@ router.get("/goleadores", async (req, res) => {
         club: g.club,
         clubLogo: g.clubLogo,
         clubSiglas: g.clubSiglas,
+        categoria: g.categoria,
         goles: g.goles,
         pj: g.partidosIds.size,
       }))
