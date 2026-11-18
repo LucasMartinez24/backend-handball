@@ -273,23 +273,23 @@ router.get("/torneo/:torneoId", async (req, res) => {
         itemV.dg = itemV.gf - itemV.gc;
 
         if (gL > gV) {
-          // Victoria Local (3 pts ganador, 1 pt perdedor según reglamento FJH/CAH)
+          // Victoria Local (+3 puntos ganador, 0 puntos perdedor)
           itemL.pg += 1;
           itemL.puntos += 3;
           itemV.pp += 1;
-          itemV.puntos += 1;
+          itemV.puntos += 0;
         } else if (gL < gV) {
-          // Victoria Visitante
+          // Victoria Visitante (+3 puntos ganador, 0 puntos perdedor)
           itemV.pg += 1;
           itemV.puntos += 3;
           itemL.pp += 1;
-          itemL.puntos += 1;
+          itemL.puntos += 0;
         } else {
-          // Empate (2 pts cada uno en CAH / 1 pt si no hay desempate reglamentario)
+          // Empate (+1 punto cada uno)
           itemL.pe += 1;
           itemV.pe += 1;
-          itemL.puntos += 2;
-          itemV.puntos += 2;
+          itemL.puntos += 1;
+          itemV.puntos += 1;
         }
       }
     }

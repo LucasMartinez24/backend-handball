@@ -260,8 +260,9 @@ router.patch("/:id/resultado", async (req, res) => {
       if (estadoFinal === "Finalizado" && partido.estado !== "Finalizado" && (partido.jornada || 1) < 90) {
         const gL = toInt(golesLocal);
         const gV = toInt(golesVisitante);
-        const ptsL = gL > gV ? 3 : gL === gV ? 2 : 1;
-        const ptsV = gV > gL ? 3 : gL === gV ? 2 : 1;
+        // Sistema Oficial: Victoria = 3 pts, Empate = 1 pt, Derrota = 0 pts
+        const ptsL = gL > gV ? 3 : gL === gV ? 1 : 0;
+        const ptsV = gV > gL ? 3 : gL === gV ? 1 : 0;
 
         const upsertPosicion = async (isLocal) => {
           const clubId = isLocal ? partido.localId : partido.visitanteId;
@@ -658,13 +659,13 @@ async function sincronizarPlayoffsAutomaticos(db, torneoId, options = {}) {
         itemV.dg = itemV.gf - itemV.gc;
         if (gL > gV) {
           itemL.puntos += 3;
-          itemV.puntos += 1;
+          itemV.puntos += 0;
         } else if (gV > gL) {
           itemV.puntos += 3;
-          itemL.puntos += 1;
+          itemL.puntos += 0;
         } else {
-          itemL.puntos += 2;
-          itemV.puntos += 2;
+          itemL.puntos += 1;
+          itemV.puntos += 1;
         }
       }
     }
